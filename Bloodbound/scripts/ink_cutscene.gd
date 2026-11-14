@@ -1,10 +1,12 @@
 extends Control
 
+const KETSUMEI = preload("res://assets/last_oath/heir/ketsumei.png")
 const SIZE := Vector2(1280,720)
 const PAPER := Color("#e3d6bc")
 const INK := Color("#292527")
 const CRIMSON := Color("#8e283c")
 const GOLD := Color("#9b713c")
+
 var monster: Texture2D
 @export var illustration: Texture2D
 @export var foreground: Texture2D
@@ -13,6 +15,9 @@ var monster: Texture2D
 	set(value):
 		progress = value
 		queue_redraw()
+
+func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
 func _draw() -> void:
 	draw_on(self,"clan",progress,illustration,foreground,reveal_mask,{})
@@ -35,7 +40,7 @@ func draw_on(canvas: CanvasItem, key: String, p: float, background: Texture2D, l
 					var a := smoothstep(.13+i*.075,.37+i*.075,p)
 					warrior(canvas,Vector2(center+(i-2)*102,521+abs(i-2)*6),1.15-abs(i-2)*.12, a, false)
 			"blade", "awakening":
-				draw_blade(canvas,Vector2(center,362),lerpf(-.26,.33,p),2.68,CRIMSON)
+				draw_blade(canvas,Vector2(center,362),lerpf(-.26,.33,p),4.25)
 			"massacre", "death":
 				for i in 7:
 					var x := 208.0+i*146.0
@@ -46,10 +51,13 @@ func draw_on(canvas: CanvasItem, key: String, p: float, background: Texture2D, l
 				if monster:
 					canvas.draw_texture_rect(monster,Rect2(center-306,161,720,400),false,Color("#552d3a"))
 				warrior(canvas,Vector2(center-232,539),.64,reveal,false)
+				if key == "death":
+					draw_blade(canvas,Vector2(center-172,548),1.54,1.55)
 			"flash", "defeat":
 				var is_flash := key == "flash"
 				var warrior_at := Vector2(center-215 if is_flash else center+211,524)
 				warrior(canvas,warrior_at,1.46,reveal,not is_flash)
+				draw_blade(canvas,warrior_at+Vector2(36,-48),1.37 if is_flash else 1.72,2.4)
 				if monster:
 					var at := Vector2(center+137,515) if is_flash else Vector2(center-79,512)
 					canvas.draw_set_transform(at,0 if is_flash else -.31)
@@ -83,7 +91,7 @@ func draw_on(canvas: CanvasItem, key: String, p: float, background: Texture2D, l
 			_:
 				warrior(canvas,Vector2(center-67,541),1.65,reveal,key=="ending")
 				if key=="ending":
-					draw_blade(canvas,Vector2(center-32,434),lerpf(1.2,2.75,p),1.15,GOLD)
+					draw_blade(canvas,Vector2(center-32,434),lerpf(.65,1.83,p),2.55)
 	if layer:
 		draw_art(canvas,layer,p,pan,zoom,reveal)
 	if mask:
@@ -139,10 +147,7 @@ func warrior(canvas: CanvasItem, feet: Vector2, scale: float, alpha: float, bowe
 	canvas.draw_line(Vector2(13,-72),Vector2(27,-33),shade,7,true)
 	canvas.draw_set_transform(Vector2.ZERO)
 
-func draw_blade(canvas: CanvasItem, at: Vector2, angle: float, scale: float, color: Color) -> void:
+func draw_blade(canvas: CanvasItem, at: Vector2, angle: float, scale: float) -> void:
 	canvas.draw_set_transform(at,angle,Vector2.ONE*scale)
-	canvas.draw_colored_polygon(PackedVector2Array([Vector2(0,-78),Vector2(6,-60),Vector2(5,39),Vector2(-4,39),Vector2(-6,-59)]),INK)
-	canvas.draw_line(Vector2(2,-69),Vector2(3,36),color,1.9,true)
-	canvas.draw_line(Vector2(-15,39),Vector2(16,39),INK,4,true)
-	canvas.draw_line(Vector2(0,41),Vector2(0,59),color,4,true)
+	canvas.draw_texture_rect(KETSUMEI,Rect2(Vector2(-8.5,-52.5),KETSUMEI.get_size()),false)
 	canvas.draw_set_transform(Vector2.ZERO)

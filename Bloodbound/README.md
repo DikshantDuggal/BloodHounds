@@ -1,312 +1,228 @@
-# BLOODBOUND — REQUIEM OF THE FALLEN
+# BLOODBOUND — THE LAST OATH
 
-> *"A clan once kept watch over the passage between life and death. They entrusted that passage to Honjō Masamune. The Hollow Sovereign came for the blade. The courtyard burned. Under the ashes, one heir still breathed."*
+> *"A clan once kept watch over the passage between life and death. They entrusted that passage to Ketsumei. The Hollow Sovereign came for the blade. The village burned. Under the ashes, one heir still breathed. Now, across morning, afternoon, and night, the last oath must be fulfilled."*
 
 [![Godot Engine](https://img.shields.io/badge/Godot_Engine-v4.5.1_Standard-478cbf?logo=godotengine&logoColor=white)](https://godotengine.org)
+[![Branch](https://img.shields.io/badge/Branch-prototype-blueviolet?logo=git&logoColor=white)](https://github.com/DikshantDuggal/BloodHounds/tree/prototype)
 [![Platform](https://img.shields.io/badge/Platform-Windows_Desktop_x86__64-0078d7?logo=windows&logoColor=white)](https://github.com/DikshantDuggal/BloodHounds)
 [![Renderer](https://img.shields.io/badge/Renderer-GL_Compatibility-green)](#technical-architecture)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](licenses/Godot-LICENSE.txt)
-[![Art Attribution](https://img.shields.io/badge/Art_Attribution-CC_BY_4.0-orange)](assets/minotaur/ATTRIBUTION.txt)
 
 ---
 
 ## Table of Contents
 1. [Overview](#overview)
-2. [Story & Narrative](#story--narrative)
-3. [Combat System & Core Mechanics](#combat-system--core-mechanics)
+2. [Narrative & The Three Acts](#narrative--the-three-acts)
+3. [Combat System & New Moves](#combat-system--new-moves)
 4. [Controls Reference](#controls-reference)
-5. [Campaign Progression & Level Walkthrough](#campaign-progression--level-walkthrough)
-6. [Enemies & Boss Encounters](#enemies--boss-encounters)
+5. [The Campaign Route & Level Breakdown](#the-campaign-route--level-breakdown)
+6. [Enemy & Boss Roster](#enemy--boss-roster)
 7. [Abilities & Soul Progression](#abilities--soul-progression)
-8. [Technical Architecture](#technical-architecture)
-9. [Automated QA & Headless Testing](#automated-qa--headless-testing)
+8. [Asset Manifest & Provenance](#asset-manifest--provenance)
+9. [Automated QA & Regression Test Suites](#automated-qa--regression-test-suites)
 10. [Building & Running the Game](#building--running-the-game)
-11. [Licenses & Credits](#licenses--credits)
 
 ---
 
 ## Overview
 
-**BLOODBOUND — REQUIEM OF THE FALLEN** is a precision 2D dark fantasy combat action game developed in **Godot Engine 4.5.1**. Emphasizing fluid swordplay, high-stakes parry timing, dynamic boss phase choreography, and an ancestral resurrection system, the game puts players in the sandals of **Ilyen**, the sole remaining heir of a fallen clan guardian order.
+**BLOODBOUND — THE LAST OATH** is an expanded, precision 2D dark fantasy combat action game built in **Godot Engine 4.5.1**. Featuring authentic pixel art animation, frame-accurate hitboxes, dynamic multi-phase boss AI, directional parrying, and an ancestral resurrection engine, the player controls **Ilyen**, the resurrected heir of a slaughtered guardian clan.
 
-Armed with the legendary spirit blade **Honjō Masamune**, Ilyen must cross five perilous transitional domains to confront **The Hollow Sovereign** atop the Throne of the Eclipse and break the cycle of tragedy.
-
----
-
-## Story & Narrative
-
-Long ago, an ancient clan maintained equilibrium across the threshold separating the living from the dead. Their sacred duty was bound to **Honjō Masamune**, a masterwork blade capable of anchoring a soul across mortality.
-
-Seeking absolute dominion over souls and death, **The Hollow Sovereign** descended upon the clan's ancestral home with his cursed greatsword **Grave Meridian**. In the ensuing massacre, the courtyard burned, the guardians fell, and Ilyen was slain before the Sovereign's throne.
-
-Yet death refused to claim the heir. Through Honjō Masamune's latent resonance, Ilyen's soul returned to flesh. Wounded but resolute, Ilyen embarks on a pilgrimage through the ruins of memory and ash to fulfill the last oath.
+Armed with the ancestral spirit katana **Ketsumei**, Ilyen embarks on a three-act quest across changing times of day—from morning in the burning village, through an afternoon pursuit in the autumn forests, into the dead of night at the moonlit fortress where **The Demon Overlord** reigns.
 
 ---
 
-## Combat System & Core Mechanics
+## Narrative & The Three Acts
 
-The combat engine is built around responsive movement, attack chaining, stamina-free yet energy-metered special arts, and frame-accurate defense windows:
+```
+[ACT I: MORNING]              [ACT II: AFTERNOON]            [ACT III: NIGHT]
+The Fallen Heir ─────────────> The Ashen Hunt ──────────────> The Eclipse Hunt
+Village & Courtyard            Stone Bridge & Shrine          Moonlit Pass & Fortress
+Rematch with Sovereign         Sovereign (350 HP)             Hunter & Brute Werewolves
+Scripted Death & Awakening     Unlocks Phantom Step & Sever   True Boss: Demon Overlord (800 HP)
+```
+
+### Act I · Morning: The Fallen Heir
+The Hollow Sovereign descends upon the clan's village. Ilyen confronts the warlord in the village courtyard. Despite valiant struggle, the duel ends at the story health threshold: the Sovereign strikes Ilyen down and departs through the sealed gate. Left in the ashes, Ilyen's soul journeys through the afterlife before Ketsumei's ancestral resonance pulls him back to life with three resurrection charges.
+
+### Act II · Afternoon: The Ashen Hunt
+Awakened under the afternoon sun, Ilyen advances along the Ashen Road. He crosses the Old Stone Bridge, avoids thorny forest briars, and defeats the forest Hunter werewolf. At the sacred shrine, the Hollow Sovereign returns for an afternoon rematch (350 HP). Defeating him raises maximum health to **160 HP**, unlocks **Phantom Step** and **Soul Sever**, and unseals the passage into night.
+
+### Act III · Night: The Eclipse Hunt
+Under the full moon, Ilyen crosses the Moonlit Pass bridge and unlocks **Death Reversal** at the nether checkpoint. Two coordinated werewolves—the swift Black Werewolf **Hunter** (150 HP) and the hulking Red Werewolf **Brute** (220 HP)—guard the fortress gates, alternating their attacks. Their defeat unseals the gate and grants **Ancestral Echo**. Inside the fortress stands the true final boss: **The Demon Overlord** (800 HP), fought across three escalating phases leading to the climactic **One Flash** execution.
+
+---
+
+## Combat System & New Moves
 
 ### 1. Melee Combat & Combos
-- **Combo String (`J`)**: Ilyen chains up to three consecutive strikes on the ground (`light_1` &rarr; `light_2` &rarr; `light_3`), ending in an extended-reach finisher with an increased damage multiplier (1.6×).
-- **Aerial Slash (`Air + J`)**: A sweeping airborne slash designed for engaging flying or elevated foes and interrupting leap attacks.
-- **Heavy Slash (`K`)**: A slower, high-impact cleave dealing 1.8× baseline damage.
-- **Charged Strike (`Hold K with ≥ 25 Energy`)**: Consumes 25 Ability Energy to unleash an ultra-wide (178px reach), 1.52× power charged strike capable of staggering high-poise adversaries.
+- **3-Hit Combo Chain (`J`)**: Chains three light slashes (`light_1` &rarr; `light_2` &rarr; `light_3`) culminating in a wide, heavy-reaching finisher.
+- **Dash Slash (`Shift + J`)**: A newly integrated sweeping dash strike executed immediately out of a dodge roll.
+- **Aerial Slash (`Air + J`)**: Broad aerial arc for catching leaping wolves or airborne attacks.
+- **Heavy Strike (`K`)**: Slow, high-stagger strike dealing 1.8× base damage.
+- **Charged Slash (`Hold K with ≥ 25 Energy`)**: Consumes 25 Ability Energy to unleash a 178px reach, 1.52× power charged strike.
 
-### 2. Defensive Arts
-- **Directional Dash / Dodge (`Shift`)**: Grants brief invulnerability frames (iframes) to slip through melee arcs and enemy rush trajectories.
-- **Active Parry (`L`)**: Raising Honjō Masamune just before an incoming strike deflects the blow, nullifies incoming damage, negates knockback, and restores **+27 Ability Energy**.
-- **Perfect Parry Window (0.065s)**: Deflecting within the first 65 milliseconds of the parry stance triggers a **Perfect Parry**, causing screen freeze, visual spark bursts, massive posture stagger to the attacker, and reflecting counter-damage multiplied by the critical factor (`1.5×`).
+### 2. Defense & Parrying
+- **Dodge / Dash (`Shift`)**: Directional evade with invulnerability frames (iframes).
+- **Active Parry (`L`)**: Deflects incoming parryable attacks, nullifies damage and knockback, and restores **+27 Ability Energy**.
+- **Perfect Parry Window (0.065s)**: Deflecting within the first 65ms of raising the guard triggers a screen shake, frame freeze, massive posture stagger to the attacker, and reflects critical counter-damage (`1.5×`).
 
-### 3. Ability Energy Pool
-- Ability Energy spans from **0 to 100**.
-- Energy is earned by landing melee slashes (+8 to +10 per strike) and successfully deflecting strikes via parry (+27 per parry).
-- Shared pool fuels:
-  - **Phantom Step** (20 Energy)
-  - **Soul Sever** (25 Energy)
-  - **Ancestral Echo** (25 Energy)
-  - **Charged Heavy Slash** (25 Energy)
-  - **Death Reversal** (100 Energy + 1 Resurrection Charge)
-
-### 4. Deduplication & Damage Calculation
-- **Damage Math**:
-  $$\text{Damage} = \max\left(1, \text{round}\left(\text{BaseAttack} \times \text{Multiplier} \times (1 + 0.10 \times \text{SoulLevel})\right)\right)$$
-- **Hit Channel Deduplication**: The engine uses a custom token-based tracking architecture (`scripts/strike.gd`) across independent channels (`melee`, `sever`, `echo`, `reversal`, `counter`). This guarantees multi-frame collision boxes register exactly once per attack swing, preventing erratic multiple-hit damage spikes.
+### 3. Ability Energy Pool (0–100)
+Earned by landing hits (+8 to +10) and parrying (+27). Fuels:
+- **Phantom Step (`E`)**: 20 Energy
+- **Soul Sever (`U`)**: 25 Energy
+- **Ancestral Echo (`I`)**: 25 Energy
+- **Charged Heavy Slash (`K`)**: 25 Energy
+- **Death Reversal (`Q`)**: 100 Energy + 1 Resurrection Charge
 
 ---
 
 ## Controls Reference
 
-| Key Binding | Action | Description |
+| Key | Action | Description |
 | :--- | :--- | :--- |
-| **`A` / `D`** or **`←` / `→`** | Move | Smooth ground locomotion with acceleration & turn damping |
-| **`Space`** or **`↑`** | Jump / Leap | Variable-height jump; release early for a low hop |
-| **`J`** | Light Attack | Tap to strike; tap rhythmically to chain the 3-hit combo |
-| **`K`** | Heavy Attack | Single heavy strike; hold to charge if energy is available |
-| **`Shift`** | Dash / Dodge | Directional evade granting brief invulnerability frames |
-| **`L`** | Parry / Guard | Timed guard against parryable attacks; 65ms perfect window |
+| **`A` / `D`** or **`←` / `→`** | Move | Directional ground locomotion with smooth turn transitions |
+| **`Space`** or **`↑`** | Jump | Variable-height jump; release early to shorten the arc |
+| **`J`** | Attack / Slash | Tap to chain 3-hit combo; press during dodge for **Dash Slash** |
+| **`K`** | Heavy Attack | Single heavy slash; hold with 25 energy to charge |
+| **`Shift`** | Dodge / Dash | Directional evasive roll granting invulnerability frames |
+| **`L`** | Parry | Active guard window against parryable attacks (65ms perfect window) |
 | **`E`** | Phantom Step | Rapid long-range warp dash through enemy hitboxes *(Unlocked Lv. 2)* |
-| **`U`** | Soul Sever | Long-range crescent shockwave projectile *(Unlocked Lv. 3)* |
-| **`Q`** | Death Reversal | Emergency resurrection blast dealing 48 damage *(Unlocked Lv. 4)* |
-| **`I`** | Ancestral Echo | Arms spirit shadow to repeat next attack after 0.25s *(Unlocked Lv. 5)* |
-| **`F`** | One Flash | Decisive final cinematic finisher during prompt *(Unlocked Lv. 6)* |
+| **`U`** | Soul Sever | Slicing crescent wave projectile traveling along the floor *(Unlocked Lv. 2)* |
+| **`Q`** | Death Reversal | Emergency resurrection blast dealing 48 damage *(Unlocked Lv. 3)* |
+| **`I`** | Ancestral Echo | Arms spirit shadow to repeat next attack after 0.25s *(Unlocked Lv. 3)* |
+| **`F`** | One Flash | Decisive cinematic execution strike when prompted *(Unlocked Lv. 3)* |
 | **`Enter`** | Confirm / Skip | Advances dialogues, skips cutscenes & cinematics |
-| **`Escape`** | Pause | Opens pause overlay and access to audio volume settings |
-| **`R`** | Retry | Restores state from latest checkpoint after defeat |
+| **`Escape`** | Pause | Opens pause menu and separate Music & Effects volume sliders |
+| **`R`** | Retry | Restores state from the latest session checkpoint after defeat |
 
 ---
 
-## Campaign Progression & Level Walkthrough
+## The Campaign Route & Level Breakdown
 
-The journey spans six progressively challenging domains. Transitioning between levels elevates Ilyen's maximum health pool, refills all resurrection charges, and unlocks new combat abilities:
-
-```
-[Level 1: Courtyard] ──> [Level 2: Ashen Road] ──> [Level 3: Shrine]
-       (120 HP)                  (140 HP)                 (160 HP)
-          │                          │                        │
-  Ancestral Resurrect          Phantom Step              Soul Sever
-          │                          │                        │
-          ▼                          ▼                        ▼
-[Level 4: Underworld] ──> [Level 5: Frozen Oath] ──> [Level 6: Throne]
-       (180 HP)                  (200 HP)                 (220 HP)
-          │                          │                        │
-    Death Reversal            Ancestral Echo              One Flash
-```
-
-### Detailed Area Breakdown
-
-| Level | Realm Name | Entry HP | Major Encounters | Reward / Unlock |
+| Level / Phase | Domain | Entry HP | Primary Encounter | Checkpoint & Rewards |
 | :---: | :--- | :---: | :--- | :--- |
-| **1** | **The Fallen Courtyard** | **120 HP** | Scripted duel with The Sovereign | **Ancestral Resurrection** |
-| **2** | **The Ashen Road** | **140 HP** | 2× Shadow Remnants, The Ashen Warden | **Phantom Step (`E`)** |
-| **3** | **The Shrine of Fading Names** | **160 HP** | Shadow Remnants, The Veiled Spirit | **Soul Sever (`U`)** + Clan Memorial |
-| **4** | **The Underworld Gate** | **180 HP** | Gatekeeper Remnants, Underworld Guardian | **Death Reversal (`Q`)** |
-| **5** | **Frozen Oath** | **200 HP** | Glacial Remnants, The Frozen Rival | **Ancestral Echo (`I`)** |
-| **6** | **The Throne of the Eclipse** | **220 HP** | The Hollow Sovereign (3-phase climax) | **One Flash (`F`)** |
+| **Act I** | **Ruined Village & Courtyard** | **120 HP** | The Hollow Sovereign (Morning Prologue) | **Ancestral Resurrection** (+10% ATK per Soul Level) |
+| **Act II** | **Old Stone Bridge & Forest** | **140 HP** | Briar Obstacles, Forest Werewolf Hunter | Bridge Checkpoint |
+| **Act II** | **The Autumn Shrine** | **140 HP** | The Hollow Sovereign Rematch (350 HP) | **Phantom Step (`E`)**, **Soul Sever (`U`)**, Max HP &rarr; **160** |
+| **Act III** | **Moonlit Pass Bridge** | **160 HP** | Bridge Traversal & Nether Seals | Nether Checkpoint, **Death Reversal (`Q`)** |
+| **Act III** | **The Fortress Gate** | **180 HP** | Hunter Werewolf (150 HP) & Brute Werewolf (220 HP) | **Ancestral Echo (`I`)**, Fortress Gate Unsealed |
+| **Act III** | **The Fortress Throne** | **200 HP** | **The Demon Overlord (800 HP)** | **One Flash (`F`)**, Epilogue & Victory |
+
+*Note: Bridges are fully bidirectional. Players can walk either way across both bridges while retaining their current checkpoint and defeated enemy states.*
 
 ---
 
-## Enemies & Boss Encounters
+## Enemy & Boss Roster
 
-Every adversary features custom telegraphs, windup animations, active swing windows, and distinct vulnerability windows:
+### 1. Ilyen (The Heir)
+- **Weapon**: **Ketsumei** (custom 17 × 60 pixel art asset rendered with sub-pixel alignment and red-wrapped grip).
+- **Visuals**: Animated using the CraftPix Samurai sprite sheet with authored death and reverse-death resurrection animations.
 
-### 1. Minions & Gatekeepers
-- **Shadow Remnant (40 HP)**: Fast-skulking shade executing *Ravenous Cut*. Susceptible to stagger on hit.
-- **The Ashen Warden (250 HP)**: Heavily armored juggernaut wielding an executioner polearm.
-  - *Executioner's Fall*: Slow overhead smash.
-  - *Ashen Rift*: Ground rupture wave that must be jumped.
-  - *Iron Procession*: Unrelenting forward charge that can be parried or dodged.
-- **The Veiled Spirit (350 HP)**: Ethereal mystic dancing between realms.
-  - *Three Forgotten Names*: Rapid 3-slash combination requiring rhythmic deflections.
-  - *Veil Step*: Instantaneous repositioning with gold marker telegraph.
-  - *Wandering Grief*: Floating, slow homing soul orb.
-- **The Underworld Guardian (450 HP)**: Colossal sentinel of the nether passage.
-  - *Gatekeeper's Blade*, *Pyre Break* (ground fire wave), *Three Tolls* heavy combo.
-- **The Frozen Rival (550 HP)**: Agile swordsman wielding frost-imbued twin steel.
-  - *Frostbite Combo*, *Ice Veil* dash, *Winter's Mirror* teleport slash.
+### 2. Minions & Werewolves
+- **Forest Hunter Werewolf (150 HP)**: Fast-leaping predator executing claw rushes and pounces.
+- **Red Brute Werewolf (220 HP)**: Heavy frontline shock trooper with ground-pound claw attacks.
+- *Coordinated AI*: In the Fortress Gate encounter, the Hunter and Brute coordinate their attack intervals to test player parry and dodge discipline.
 
-### 2. The Climax: The Hollow Sovereign (800 HP)
-The Sovereign commands the Throne of the Eclipse across three distinct phases and an execution climax:
+### 3. The Hollow Sovereign (Morning & Afternoon Boss)
+- Animated via the Minotaur atlas by chierit (CC BY 4.0).
+- Uses *Void Cleave*, *Eclipse Slam* (ground shockwave), and *Shadow Rush*. Returns in the afternoon at 350 HP.
 
-1. **Phase I — The Awakened Duel (800 &rarr; 520 HP)**:
-   - Uses *Void Cleave* (horizontal arc), *Eclipse Slam* (dual shockwave), and *Shadow Rush*.
-2. **Phase II — The Broken Crown (520 &rarr; 200 HP)**:
-   - Phase threshold triggers a crown-shattering cinematic.
-   - Gains *Falling Ruin* (vertical blade bombardment from the sky), *Eclipse Step* teleportation, and *Thronebreaker* (a terrifying three-beat combo: *Beat 1 Dash &rarr; Beat 2 Dash &rarr; Beat 3 Parry!*).
-3. **Phase III — The Final Oath (200 &rarr; 40 HP)**:
-   - High-tempo, reduced windups, elevated aggression, and heightened stagger recovery. Ilyen's blade turns pure white.
-4. **Execution Phase — One Flash (40 HP)**:
-   - Sovereign's health locks at 40 HP; conventional strikes deal zero damage.
-   - The camera zooms in as the screen darkens into the **One Flash** prompt: `PRESS F`.
-   - **Last Chance Mechanic**: If the player fails to react in time, the Sovereign repels Ilyen with a ground shockwave. Leaping over this shockwave grants a second opportunity to execute One Flash!
-   - Pressing **`F`** triggers the blinding final slash, ancestral spirit figures materialize to hold the oath, and the Sovereign dissolves in an ink shockwave.
+### 4. The Demon Overlord (True Final Boss — 800 HP)
+- Sourced from the **Demon Overlord 2D Pixel Art** pack (160 × 160 px authored sheets).
+- **Phase I (800 &rarr; 520 HP)**:
+  - *Hellsteel Cleave* (18 DMG, reach 160): Parryable overhead blade arc.
+  - *Furnace Lunge* (30 DMG, reach 118): High-speed forward thrust.
+  - *Flame Wave* (24 DMG): Floor-traveling flame wall that must be jumped.
+- **Phase II (520 &rarr; 200 HP)**:
+  - Phase threshold triggers an infernal cast animation.
+  - Gains *Infernal Seals* (35 DMG, 110 reach): Vertical pillar seals erupting from the floor.
+- **Phase III (200 &rarr; 40 HP)**:
+  - Relentless tempo! Unlocks *Threefold Execution* (34 DMG): A lethal three-beat rhythm (*Dodge &rarr; Dodge &rarr; Parry!*).
+- **Execution Phase — One Flash (40 HP)**:
+  - Health locks at 40 HP; conventional damage ceases.
+  - The screen darkens and the **Strike Now** prompt appears: **`PRESS F`**.
+  - If mistimed, the Overlord unleashes a ground shockwave. Jumping over the wave grants a second chance.
+  - Pressing `F` delivers the decisive execution blow, triggering the ancestral ink epilogue.
 
 ---
 
 ## Abilities & Soul Progression
 
 ### Ancestral Resurrection
-- When health reaches zero with available charges, Honjō Masamune pulls Ilyen back from the veil.
-- **Soul Power**: Each resurrection grants **+1 Soul Level** (capped at Level 5), permanently raising attack strength by **+10% per level** (up to a **+50% attack boost**).
-- During automatic resurrection in boss fights, the boss's HP and phase are preserved!
+- When health reaches zero with available charges, Ketsumei pulls Ilyen back from death.
+- Each resurrection adds **+1 Soul Level** (up to Level 5), providing a permanent **+10% attack boost per level** (up to **+50%**).
+- Automatic resurrection during boss fights preserves the boss's HP and phase!
 
-### Ability Mechanics Table
+### Ability Summary Table
 
 | Ability | Key | Cost | Cooldown | Visual FX | Combat Function |
 | :--- | :---: | :---: | :---: | :--- | :--- |
-| **Phantom Step** | `E` | 20 Energy | 3.5s | Cyan spectral ghosting | Blinks forward at 1080 px/s with invulnerability; repositions through bosses. |
-| **Soul Sever** | `U` | 25 Energy | 2.2s | Violet crescent wave | Fires a slicing projectile that travels 540 px/s across the arena floor. |
-| **Death Reversal** | `Q` | 100 Energy + 1 Charge | 25.0s | Crimson radial shockwave | Delivers an immediate 48-damage blast in a 190px radius, knocking back foes. |
-| **Ancestral Echo** | `I` | 25 Energy | 5.0s | Golden silhouette echo | Charges Ilyen's next sword attack to be duplicated after a 0.25s delay for 70% damage. |
-| **One Flash** | `F` | None | N/A | White screen flash & kanji-style cut | Cinematic finisher triggered exclusively in the Sovereign's execution window. |
+| **Phantom Step** | `E` | 20 Energy | 3.5s | Cyan spectral ghost | Extended invincible blink through enemy hitboxes. |
+| **Soul Sever** | `U` | 25 Energy | 2.2s | Violet crescent wave | Fires a slicing projectile along the floor. |
+| **Death Reversal** | `Q` | 100 Energy + 1 Charge | 25.0s | Crimson radial shockwave | Retaliatory 48-damage radial blast that staggers surrounding foes. |
+| **Ancestral Echo** | `I` | 25 Energy | 5.0s | Golden spirit duplicate | Replicates next sword attack after 0.25s for 70% damage. |
+| **One Flash** | `F` | Free | N/A | Kanji screen flash | Finishing strike triggered at 40 HP during the Overlord execution. |
 
 ---
 
-## Technical Architecture
+## Asset Manifest & Provenance
 
-The Bloodbound codebase is designed for modularity, data-driven balance, zero runtime allocation spikes, and graceful procedural fallbacks:
+All external assets are cataloged in [ASSET_MANIFEST.md](ASSET_MANIFEST.md):
 
-```
-Bloodbound/
-├── assets/
-│   └── minotaur/                 # Boss sprite sheet & CC BY 4.0 attribution
-│       ├── ATTRIBUTION.txt
-│       ├── sheet.png
-│       └── sovereign_frames.tres
-├── licenses/                     # Engine and open-source license documentation
-│   ├── Godot-COPYRIGHT.txt
-│   └── Godot-LICENSE.txt
-├── resources/                    # Data-driven configuration profiles (.cfg & .tres)
-│   ├── encounter.cfg             # Dialogue lines, timings, audio mappings & story panels
-│   ├── enemies.cfg               # Complete enemy stats, attack boxes & patterns
-│   ├── heir.cfg                  # Player speed, jump gravity, hitboxes & weapon rects
-│   ├── oath_gradient.tres        # Color ramp for awakened swings and VFX
-│   ├── player_progression.tres   # HP by level, energy limits & unlock sequences
-│   └── sovereign.cfg             # Boss health, phases, telegraphs & attack definitions
-├── scenes/                       # Godot PackedScene definitions
-│   ├── Enemy.tscn                # Standard enemy instance
-│   ├── Heir.tscn                 # Player character instance
-│   ├── InkCutscene.tscn          # Procedural ink-wash cutscene canvas
-│   ├── Sovereign.tscn            # Boss character instance
-│   └── Throne.tscn               # Master game world & stage coordinator
-├── scripts/                      # Core GDScript game logic
-│   ├── arena.gd                  # Arena bounds, parallax mountains & scenery rendering
-│   ├── bindings.gd               # InputMap key registration
-│   ├── camera_director.gd        # Dynamic camera framing, zoom & screen rumble
-│   ├── damage.gd                 # Clamping & arithmetic damage helpers
-│   ├── effects.gd                # Particle bursts, arcs, ghosts & hitbox debug draws
-│   ├── enemy.gd                  # Route enemy state machine & attack dispatch
-│   ├── fighter_art.gd            # Sprite rendering & procedural vector character rig
-│   ├── heir.gd                   # Player physics, combo buffers, jump coyote & iframes
-│   ├── ink_cutscene.gd           # Traditional Japanese ink-and-paper cutscene renderer
-│   ├── interface.gd              # Heads-Up Display (HUD), menus, boss gauges & modal UI
-│   ├── journey.gd                # Area transitions, enemy wave spawner & checkpoints
-│   ├── player_stats.gd           # Level scaling, soul caps, snapshots & restore logic
-│   ├── powers.gd                 # Ability cooldowns, projectile waves & echo logic
-│   ├── profile.gd                # ConfigFile wrapper with safe fallback handling
-│   ├── soundscape.gd             # Audio manager & real-time procedural audio synthesizer
-│   ├── sovereign.gd              # Sovereign 3-phase AI state machine
-│   ├── story.gd                  # Timed cutscene timeline player
-│   ├── strike.gd                 # Hitbox token & multi-hit deduplication model
-│   └── throne.gd                 # Master orchestrator & cinematic event sequencer
-├── tests/
-│   └── smoke.gd                  # Automated headless regression & full-route test suite
-├── .gitignore                    # Godot 4 editor cache exclusion rules
-├── ART_IMPORT_GUIDE.md           # Instructions for replacing procedural art with custom sheets
-├── export_presets.cfg            # Windows Desktop standalone build preset
-└── project.godot                 # Godot Engine project definition
-```
-
-### Key Architectural Highlights
-1. **Procedural Audio Synthesizer (`scripts/soundscape.gd`)**:
-   - If audio files are missing, the engine automatically falls back to an integrated, algorithmic 16-bit 22.05 kHz audio synthesis engine!
-   - Synthesizes blade whooshes (`swing`), metal impacts (`hit`), parry clangs (`parry`), low ground rumbles (`slam`), and harmonic ambient musical melodies using sine, exponential envelopes, and frequency modulation.
-2. **Procedural Vector Rig (`scripts/fighter_art.gd`)**:
-   - When external SpriteFrames are absent, all characters and bosses are procedurally drawn using 2D canvas primitives, bezier curves, joint rotations, moving cloaks, and responsive eye tracking.
-3. **Japanese Ink Cutscene Engine (`scripts/ink_cutscene.gd`)**:
-   - Renders story cinematics on an authentic paper-and-ink canvas (`#e3d6bc` wash with `#292527` calligraphy strokes and crimson highlights), complete with procedural brush sweeps, mountain silhouettes, and animated ink dispersal.
+- **Samurai Character (Ilyen)**: [CraftPix Free Samurai Pixel Art](https://craftpix.net/file-licenses/) (Freebie License).
+- **Werewolves (Hunter & Brute)**: [CraftPix Free Werewolf Pixel Art](https://craftpix.net/file-licenses/).
+- **Demon Overlord**: [Demon Overlord 2D Pixel Art v1.0.0](licenses/Demon-Overlord.txt).
+- **Backgrounds (Moonwake & Sunset)**: Four-layer parallax backgrounds by Firepious ([Moonwake License](licenses/Moonwake.txt)).
+- **Bridge & Platform Tiles**: [Free Bridges Top-Down Pixel Art Pack](licenses/CraftPix.txt).
+- **Blood Impact VFX**: Pixel Art Blood Effect FX020 by **NYKNCK** ([nyknck.itch.io](https://nyknck.itch.io/bloodfx)).
+- **Audio & SFX**: Sword slashes and impacts by DavidDumaisAudio (Pixabay License); wolf songs and atmospheres by Dragon Studio and Freesound community.
+- **Ketsumei Blade**: Official team-approved custom pixel art (`17 × 60` grid, red hilt wrapping).
+- **Hollow Sovereign**: Boss: Minotaur by chierit ([CC BY 4.0](assets/minotaur/ATTRIBUTION.txt)).
 
 ---
 
-## Automated QA & Headless Testing
+## Automated QA & Regression Test Suites
 
-The project includes an enterprise-grade automated test runner located at `res://tests/smoke.gd`. It drives simulated player input at fixed 60 FPS physics ticks to verify game integrity without requiring human interaction.
-
-To run tests from the command line using Godot 4.5.1:
+Bloodbound features an extensive automated test suite capable of headless execution at fixed 60 FPS:
 
 ```powershell
-# 1. Clean import assets in headless mode
-godot --headless --path . --editor --import --quit
+# 1. Clean import of all assets
+godot --headless --editor --import --quit
 
-# 2. Run the complete 6-level campaign test suite
-godot --headless --path . --fixed-fps 60 --script res://tests/smoke.gd
+# 2. Complete campaign playthrough test (105 checks through One Flash and victory)
+godot --headless --fixed-fps 60 --script res://tests/smoke.gd
 
-# 3. Test procedural fallback rendering without sprite assets
-godot --headless --path . --fixed-fps 60 --script res://tests/smoke.gd -- --no-art
+# 3. Weapon & Ketsumei sub-pixel alignment regression (25 poses in both directions)
+godot --headless --script res://tests/weapon.gd
 
-# 4. Direct final duel combat verification with starting stats
-godot --headless --path . --fixed-fps 60 --script res://tests/smoke.gd -- --base-duel
+# 4. Boss sprite fallback validation
+godot --headless --fixed-fps 60 --script res://tests/smoke.gd -- --no-art
+
+# 5. Final duel with initial starting stats
+godot --headless --fixed-fps 60 --script res://tests/smoke.gd -- --base-duel
+
+# 6. Display & visual frame verification
+godot --fixed-fps 60 --script res://tests/display.gd
 ```
 
-### Verified Test Cases
-- New game starting statistics, health clamping, and level progression up to 220 HP.
-- Soul level damage scaling capped at +50%.
-- Choreographed intro skip safety and cinematic pacing.
-- Checkpoint persistence, health refills, and retry state preservation.
-- Hitbox deduplication on single-strike instances.
-- Multi-phase Sovereign transitions at 520 HP, 200 HP, and 40 HP execution lock.
-- One Flash timing window, Last Chance shockwave recovery, and cinematic execution.
+See [TEST_REPORT.md](TEST_REPORT.md) for full test telemetry and pass logs.
 
 ---
 
 ## Building & Running the Game
 
-### Play Immediately on Windows
-- A standalone, pre-built Windows 64-bit executable is included in the release:
+### Play Immediately
+- Run the compiled 64-bit Windows binary directly:
   ```powershell
   ..\Bloodbound.exe
   ```
 
-### Run from Source in Godot Editor
-1. Download and install **Godot Engine 4.5.1 Standard** (available at [godotengine.org](https://godotengine.org)).
-2. Launch Godot, click **Import**, and select `project.godot`.
-3. Press **F5** (or click the Play button in the top right corner) to start the game.
-
-### Exporting to Executable
-1. Open the project in Godot 4.5.1.
-2. Navigate to **Project &rarr; Export...**.
-3. Select the **Windows Desktop** preset configured in `export_presets.cfg`.
-4. Click **Export Project** and choose the destination binary path.
+### Run from Source in Godot
+1. Open **Godot 4.5.1 Standard**.
+2. Click **Import** and select `project.godot`.
+3. Press **F5** to run.
 
 ---
 
-## Licenses & Credits
-
-- **Game Engine & Source Code**: Released under the [MIT License](licenses/Godot-LICENSE.txt).
-- **Godot Engine**: Copyright (c) 2014-present Godot Engine contributors; released under the [MIT License](licenses/Godot-LICENSE.txt).
-- **Minotaur Boss Atlas**: Created by **chierit** ([Boss: Minotaur on itch.io](https://chierit.itch.io/boss-minotaur)); licensed under [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). See `assets/minotaur/ATTRIBUTION.txt`.
-- **Honjō Masamune Lore**: Inspired by legendary Japanese swordsmith **Gorō Nyūdō Masamune** and the celebrated historic blade passed through the Tokugawa shogunate.
-
----
-
-*“I lowered Honjō Masamune. The blade was finally still.”*
+*“I lowered Ketsumei. The blade was finally still.”*

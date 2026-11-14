@@ -55,6 +55,7 @@ func use(game, ability: String) -> void:
 			echo_armed = true
 			cooldowns[ability] = stats.echo_cooldown
 			game.effects.ghost(hero.position,hero.facing,COLORS.echo)
+			game.effects.blade_echo(game.hero_art.weapon_pivot.global_transform,COLORS.echo,Vector2(-hero.facing*34,0))
 			game.sound.cue("buildup")
 	hero.energy -= cost(stats,ability)
 
@@ -92,6 +93,7 @@ func tick(game,dt:float) -> void:
 		if echo.life <= 0.0:
 			echoes.remove_at(index)
 			game.effects.ghost(echo.at,echo.strike.direction,COLORS.echo,1.12)
+			game.effects.blade_echo(game.hero_art.weapon_pivot.global_transform,COLORS.echo,echo.at-game.hero.position-Vector2(echo.strike.direction*24,0))
 			game.effects.arc(echo.at+Vector2(0,-40),echo.strike.direction,90,COLORS.echo)
 			game.hero_strike(echo.strike)
 			if game.state != previous_state:

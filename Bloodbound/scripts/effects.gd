@@ -1,6 +1,9 @@
 extends Node2D
 
 const CAPACITY := 360
+const BLOOD_IMPACT = preload("res://assets/last_oath/blood_impact.png")
+var impacts: Array[Vector4] = []
+var blade_echoes: Array[Dictionary] = []
 var particles: Array[Dictionary] = []
 var arcs: Array[Dictionary] = []
 var ghosts: Array[Dictionary] = []
@@ -13,7 +16,18 @@ var latest_boxes: Array[Rect2] = []
 var box_life := 0.0
 var oath_ramp := preload("res://resources/oath_gradient.tres")
 
+func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+
 func tick(dt: float) -> void:
+	for i in range(blade_echoes.size()-1,-1,-1):
+		blade_echoes[i].life -= dt
+		if blade_echoes[i].life <= 0:
+			blade_echoes.remove_at(i)
+	for i in range(impacts.size()-1,-1,-1):
+		impacts[i].w += dt
+		if impacts[i].w >= .31:
+			impacts.remove_at(i)
 	for i in range(particles.size() - 1, -1, -1):
 		var item := particles[i]
 		item.life -= dt
@@ -36,6 +50,8 @@ func tick(dt: float) -> void:
 	queue_redraw()
 
 func clear() -> void:
+	impacts.clear()
+	blade_echoes.clear()
 	particles.clear()
 	arcs.clear()
 	ghosts.clear()
@@ -56,6 +72,15 @@ func ghost(at: Vector2, facing: float, color: Color, size: float = 1.0) -> void:
 	if ghosts.size() < 32:
 		ghosts.append({"at": at, "face": facing, "color": color, "size": size, "life": .21})
 
+func blade_echo(pose: Transform2D, color: Color, offset: Vector2) -> void:
+	if blade_echoes.size() < 8:
+		pose.origin += offset
+		blade_echoes.append({"pose":pose,"color":color,"life":.25})
+
+func bleed(at: Vector2, direction: float) -> void:
+	if impacts.size() < 12:
+		impacts.append(Vector4(at.x,at.y,direction,0))
+
 func show_box(box: Rect2) -> void:
 	if not debug:
 		return
@@ -69,6 +94,12 @@ func _draw() -> void:
 		return
 	draw_boss_cues()
 	draw_story()
+	draw_weapon_effects()
+	for impact in impacts:
+		var frame := mini(int(impact.w*33.0),9)
+		draw_set_transform(Vector2(impact.x,impact.y),0,Vector2(-impact.z,1))
+		draw_texture_rect_region(BLOOD_IMPACT,Rect2(-55,-21,110,41.25),Rect2(frame*64,0,64,24),Color("#ff96a6"))
+	draw_set_transform(Vector2.ZERO)
 	for wave in director.powers.waves:
 		var at: Vector2 = wave.at
 		draw_set_transform(at,0,Vector2(wave.facing*.7,1.0))
@@ -160,7 +191,9 @@ func draw_oath_impact(at: Vector2, p: float, length: float) -> void:
 		Color(oath_ramp.sample(.1), fade * .72), 1.8, true)
 
 func draw_boss_cues() -> void:
-	var purple := Color("#ba8cf6")
+	if not boss.visible:
+		return
+	var purple := Color("#fa7543") if boss == director.overlord else Color("#ba8cf6")
 	var gold := Color("#ffcb9e")
 	var at: Vector2 = boss.position
 	var clock: float = boss.clock
@@ -173,7 +206,10 @@ func draw_boss_cues() -> void:
 				draw_rect(warning, Color(purple, .21 + p * .3))
 				draw_line(Vector2(x - 52, 569), Vector2(x + 52, 569), Color(purple, pulse), 2, true)
 				rune(Vector2(x, 553), 12 + p * 9, Color(purple, pulse))
-				draw_blade(Vector2(x, 280 + p * 82), 62.0, Color(purple, p * .78))
+				if boss == director.overlord:
+					draw_line(Vector2(x,471),Vector2(x,560),Color(purple,p*.5),3)
+				else:
+					draw_ruin_projectile(Vector2(x,280+p*82),62.0,Color(purple,p*.78))
 		elif boss.attack in ["rush","teleport"]:
 			draw_line(Vector2(at.x, 561), Vector2(boss.aim, 561), Color(purple, .33), 2.0, true)
 			rune(Vector2(boss.aim, 550), 15 + p * 12, Color(purple, pulse))
@@ -183,14 +219,19 @@ func draw_boss_cues() -> void:
 			rune(at + Vector2(38 * boss.facing, -145), 8.0 + 10.0 * p, Color(purple.lerp(gold,.43), pulse))
 	elif boss.mode == boss.Mode.ACTIVE:
 		if boss.attack == "slam":
-			for side: float in [-1, 1]:
+			for side: float in boss.wave_directions():
 				var x: float = boss.origin + side * clock * 620
 				var points := PackedVector2Array([Vector2(x - side*31,570), Vector2(x,540), Vector2(x + side*25,570)])
 				draw_colored_polygon(points, Color(purple, .30))
 				draw_polyline(points, Color("#ead4ff"), 1.8, true)
 		if boss.attack == "ruin":
 			for x: float in boss.marks:
-				draw_blade(Vector2(x, minf(573.0, 368.0 + clock * 1530)), 104.0, Color(purple, 1.0 - clock))
+				if boss == director.overlord:
+					var height := 172.0*clampf(clock*7,0,1)
+					for width: float in [82,48,19]:
+						draw_line(Vector2(x,570),Vector2(x,570-height),Color(purple,.16*(1.0-clock)),width)
+				else:
+					draw_ruin_projectile(Vector2(x,minf(573.0,368.0+clock*1530)),104.0,Color(purple,1.0-clock))
 				draw_line(Vector2(x, 394), Vector2(x, 570), Color(purple, maxf(0, .23 - clock * .42)), 2)
 		if boss.attack == "throne":
 			var next: float = .70 if clock < .70 else 1.37
@@ -240,22 +281,6 @@ func draw_story() -> void:
 			draw_set_transform(Vector2.ZERO)
 	if director.state in [director.State.AWAKEN, director.State.RESURRECTING]:
 		draw_soul(at, t, director.state == director.State.RESURRECTING)
-	if director.state == director.State.AWAKEN:
-		var sword_at := at + Vector2(70 * hero.facing, -4)
-		if t < director.timing("awakening_flash"):
-			draw_line(sword_at - Vector2(45, -1), sword_at + Vector2(44, -1), Color("#686273"), 4.0, true)
-			draw_line(sword_at - Vector2(36, 6), sword_at - Vector2(36, -6), Color("#958696"), 3.0, true)
-			var p := smoothstep(.8, 3.5, t)
-			for i in 21:
-				var q := fposmod(i * .097 + t * (0.42 + p * .32), 1)
-				var x := lerpf(at.x, sword_at.x + 23, q)
-				var y := at.y - 2.0 - sin(q * TAU + i) * (1.5 + p * q * 3.0)
-				draw_circle(Vector2(x,y), 1.8, Color(red, p * .65), true, -1, true)
-			for i in 4:
-				draw_line(sword_at - Vector2(34, 0), sword_at + Vector2(35, 0), Color(red, p * (.09 + .06 * sin(t * 11))), 4 + i*6, true)
-		else:
-			var p := clampf((t - director.timing("awakening_flash")) / 1.4, 0, 1)
-			draw_arc(at, 32 + p * 230, PI, TAU, 38, Color(red, (1-p)*.8), 2, true)
 	if director.state in [director.State.FLASH_PREP, director.State.FLASH_OPEN]:
 		var field := at + Vector2(hero.facing * 34, -61)
 		var intensity := .46 if director.state == director.State.FLASH_PREP else .89
@@ -285,6 +310,52 @@ func draw_story() -> void:
 			var length := lerpf(.10, .26, growth)
 			draw_line(hit + tail * length, hit - tail * length, Color(red, opacity*.35), 7.0 + growth * 16.0, true)
 			draw_line(hit + tail * length, hit - tail * length, Color("#fff5ea", opacity), 1.6 + growth * 5.4, true)
+
+func draw_weapon_effects() -> void:
+	var art = director.hero_art
+	var pivot: Node2D = art.weapon_pivot
+	var blade: Sprite2D = art.weapon_sprite
+	if blade.texture == null:
+		return
+	var box := Rect2(blade.offset,blade.texture.get_size())
+	for echo in blade_echoes:
+		draw_set_transform_matrix(global_transform.affine_inverse()*echo.pose)
+		draw_texture_rect(blade.texture,box,false,Color(echo.color,.46*echo.life/.25))
+	draw_set_transform(Vector2.ZERO)
+	var s = director.State
+	var state: int = director.state
+	var t: float = director.clock
+	var grip := to_local(pivot.global_position)
+	var tip := to_local(pivot.to_global(Vector2(4,-art.weapon_grip.y+2)))
+	var strength := 0.0
+	var hue := Color("#fb315d")
+	if state in [s.DEPARTURE,s.AWAKEN]:
+		var start := .50 if state == s.DEPARTURE else 0.0
+		var stop: float = director.timing("awakening_flash")
+		if t > start and (state == s.DEPARTURE or t < stop):
+			var blood := to_local(hero.global_position)+Vector2(4,-5)
+			for i in 15:
+				var progress := fposmod(i*.113+t*.85,1.0)
+				var dot := blood.lerp(tip,progress)
+				dot.y -= sin(progress*PI)*(3+i%4)
+				draw_circle(dot,1.0+i%3*.45,Color(hue,.61),true,-1,true)
+		if state == s.AWAKEN:
+			strength = smoothstep(stop-.9,stop+.26,t)*(1.0-smoothstep(stop+1.05,stop+2.3,t))
+	elif state == s.RESURRECTING and director.reversal:
+		strength = sin(clampf(t/director.resurrection_duration(),0.0,1.0)*PI)
+	elif state in [s.FLASH_PREP,s.FLASH_OPEN,s.EXECUTE]:
+		hue = Color("#fff2e5")
+		match state:
+			s.FLASH_PREP: strength = smoothstep(.45,1.63,t)
+			s.FLASH_OPEN: strength = 1.0
+			s.EXECUTE: strength = 1.0-smoothstep(.48,1.17,t)
+	if strength > .01:
+		for width: float in [29,17,9]:
+			draw_line(grip.lerp(tip,.16),tip,Color(hue,strength*.14),width,true)
+		for i in 7:
+			var progress := fposmod(i*.261+t*2.3,1.0)
+			var mote := grip.lerp(tip,progress)+Vector2.from_angle(i*2.4+t*8)*8.0
+			draw_circle(mote,1.6,Color(hue,strength*.64))
 
 func draw_ancestral_figures(hit: Vector2, fade: float) -> void:
 	for i in 5:
@@ -320,7 +391,7 @@ func rune(at: Vector2, radius: float, color: Color) -> void:
 	draw_polyline(points, color, 1.5, true)
 	draw_circle(at, radius * .17, color, true, -1.0, true)
 
-func draw_blade(at: Vector2, length: float, color: Color) -> void:
+func draw_ruin_projectile(at: Vector2, length: float, color: Color) -> void:
 	var shape := PackedVector2Array([at, at + Vector2(-8,-length*.56), at + Vector2(-7,-length),
 		at + Vector2(7,-length), at + Vector2(8,-length*.56)])
 	draw_colored_polygon(shape, Color(color, color.a*.31))

@@ -2,10 +2,16 @@ extends Node2D
 ## The connected locations share a floor height and keep art separate from collision.
 
 const FLOOR := 572.0
+const ART := "res://assets/last_oath/"
+const DAY_LAYERS := ["fond","sun","cloud","m1","m2","m3","m4","m5","m6"]
+const NIGHT_SKIES := {"underworld":"01_the_rise","frozen":"03_the_veil","throne":"02_the_vigil"}
+const BRIDGES := {"road":Rect2(390,572,864,72),"underworld":Rect2(350,572,800,52)}
+const PLATFORMS := {"road":[Rect2(1506,512,158,22),Rect2(1680,454,144,22),Rect2(1860,514,150,22)],"underworld":[Rect2(1300,520,172,22),Rect2(1510,470,140,22)]}
+const FOREST_BRIARS := Rect2(1695,550,105,24)
 const INK := Color("#17151b")
 const PAPER := Color("#c3b8a3")
 const BLOOD := Color("#903c4b")
-const WIDTHS := {"courtyard": 1280.0, "road": 3000.0, "shrine": 2600.0, "underworld": 2120.0, "frozen": 2240.0, "throne": 1280.0}
+const WIDTHS := {"courtyard": 1280.0, "road": 3000.0, "shrine": 1860.0, "underworld": 2120.0, "frozen": 2240.0, "throne": 1280.0}
 
 var area := "throne"
 var area_width := 1280.0
@@ -13,6 +19,8 @@ var spawn_point := Vector2(180, FLOOR)
 var exit_x := 1140.0
 var exit_open := true
 var gate_closed := 0.0
+var ending := false
+var backdrop_time := 0.0
 var mood := 0.0
 var shade := 0.0
 var time := 0.0
@@ -23,12 +31,15 @@ var backgrounds: Dictionary = {}
 var floor_shape: CollisionShape2D
 var right_wall: CollisionShape2D
 var route_barrier: CollisionShape2D
-const ROAD_DEBRIS := [505.0, 1775.0]
-const OBSTACLES := {"road":ROAD_DEBRIS,"underworld":[926.0],"frozen":[1105.0,1320.0]}
+const ROAD_DEBRIS := [1390.0]
+const OBSTACLES := {"road":ROAD_DEBRIS,"underworld":[1590.0]}
 var debris_shapes: Dictionary = {}
 var ridges: Array[PackedVector2Array] = []
 var ridge_edges: Array[PackedVector2Array] = []
 var ash: Array[Vector3] = []
+var campaign_art: Dictionary = {}
+var deck_floor: CollisionShape2D
+var far_bank: CollisionShape2D
 var grain: Array[Vector3] = []
 
 func _ready() -> void:
@@ -36,6 +47,8 @@ func _ready() -> void:
 	body.name = "AreaCollision"
 	add_child(body)
 	floor_shape = add_wall(body, Vector2(640, FLOOR + 35), Vector2(1600,70))
+	deck_floor = add_wall(body,Vector2.ZERO,Vector2(1,1))
+	far_bank = add_wall(body,Vector2.ZERO,Vector2(1,1))
 	add_wall(body, Vector2(58,260),Vector2(40,624))
 	right_wall = add_wall(body, Vector2(1222,260),Vector2(40,624))
 	route_barrier = add_wall(body,Vector2(1125,300),Vector2(20,550))
@@ -49,6 +62,16 @@ func _ready() -> void:
 			var height := 32.0 if key == "road" else 42.0
 			obstacles.append(add_wall(debris_body,Vector2(x,FLOOR-height*.5),Vector2(38,height)))
 		debris_shapes[key] = obstacles
+	for key: String in PLATFORMS:
+		for top: Rect2 in PLATFORMS[key]:
+			var ledge := add_wall(debris_body,top.get_center(),top.size)
+			ledge.one_way_collision = true
+			debris_shapes[key].append(ledge)
+	for key: String in NIGHT_SKIES.values() + ["04_the_wane","stone_bridge","wood_bridge","rock_platform"]:
+		campaign_art[key] = load(ART + key + ".png")
+	for key: String in DAY_LAYERS:
+		campaign_art[key] = load(ART + "sunset/" + key + ".png")
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 821781
 	for i in 112:
@@ -67,6 +90,8 @@ func set_area(name: String) -> void:
 	var next_area := name if WIDTHS.has(name) else "courtyard"
 	var width_changed: bool = area_width != WIDTHS[next_area] or ridges.is_empty()
 	gate_closed = 0.0
+	ending = false
+	backdrop_time = time
 	set_exit_open(true)
 	if next_area == area and not width_changed:
 		return
@@ -88,11 +113,25 @@ func set_area(name: String) -> void:
 			points.append(Vector2(area_width+950,650))
 			ridges.append(points)
 			ridge_edges.append(points.slice(1,-1))
-		floor_shape.shape.size = Vector2(area_width + 460,70)
-		floor_shape.position = Vector2(area_width*.5,FLOOR+35)
-		right_wall.position.x = area_width - 58
-		route_barrier.position.x = exit_x - 15
+	update_ground_collision()
+	right_wall.position.x = area_width - 58
+	route_barrier.position.x = exit_x - 15
 	queue_redraw()
+
+func update_ground_collision() -> void:
+	var bridge: Rect2 = BRIDGES.get(area,Rect2())
+	var crossing := bridge.size.x > 0.0
+	var left_end := bridge.position.x+1.0 if crossing else area_width+230.0
+	floor_shape.shape.size = Vector2(left_end+230.0,70)
+	floor_shape.position = Vector2((left_end-230.0)*.5,FLOOR+35)
+	deck_floor.set_deferred("disabled",not crossing)
+	far_bank.set_deferred("disabled",not crossing)
+	if crossing:
+		deck_floor.shape.size = Vector2(bridge.size.x,15)
+		deck_floor.position = Vector2(bridge.get_center().x,FLOOR+7.5)
+		var right_length := area_width+230.0-bridge.end.x+1.0
+		far_bank.shape.size = Vector2(right_length,70)
+		far_bank.position = Vector2(bridge.end.x-1.0+right_length*.5,FLOOR+35)
 
 func set_exit_open(value: bool) -> void:
 	exit_open = value
@@ -128,20 +167,8 @@ func _draw() -> void:
 		sky = sky.lerp(Color("#79665d"),clampf(mood-2,0,1)*.68)
 	var bounds := Rect2(-360,-110,area_width+720,960)
 	draw_rect(bounds,INK)
-	for band in 54:
-		var p := band/53.0
-		var light := sin(p*PI*.79)*.62
-		draw_rect(Rect2(-360,-55+band*12,area_width+720,12.4),sky.lerp(tint,light))
-	draw_sky(tint, final_area)
-	for layer in ridges.size():
-		# Camera compensation gives distant ridges a slower apparent motion.
-		draw_set_transform(Vector2(parallax * (.48 - layer*.105),0))
-		var mountain := Color("#746f72").lerp(INK,layer*.19+.20)
-		if final_area:
-			mountain = mountain.darkened(.38)
-		draw_colored_polygon(ridges[layer],mountain)
-		draw_polyline(ridge_edges[layer],Color(tint,.08),1.5,true)
-	draw_set_transform(Vector2.ZERO)
+	if not draw_campaign_sky():
+		draw_fallback_sky(tint,sky,final_area)
 	match area:
 		"courtyard":
 			draw_courtyard(tint)
@@ -156,6 +183,13 @@ func _draw() -> void:
 		"throne":
 			draw_throne(tint)
 	draw_ground(tint)
+	draw_crossing(tint)
+	for top: Rect2 in PLATFORMS.get(area,[]):
+		draw_texture_rect(campaign_art.rock_platform,Rect2(top.position,Vector2(top.size.x,top.size.x*39.0/146.0)),false,Color("#a6a0aa"))
+	if area == "road":
+		draw_briars()
+	if area == "frozen":
+		draw_gate_lock(tint)
 	var image: Texture2D = backgrounds.get(area)
 	if image == null and final_area:
 		image = background
@@ -176,6 +210,92 @@ func _draw() -> void:
 		seal(Vector2(x,483),16,Color("#d6a088"))
 	if shade > 0:
 		draw_rect(bounds,Color(.022,.016,.025,shade))
+
+func draw_fallback_sky(tint: Color, sky: Color, final_area: bool) -> void:
+	for band in 54:
+		var p := band/53.0
+		var light := sin(p*PI*.79)*.62
+		draw_rect(Rect2(-360,-55+band*12,area_width+720,12.4),sky.lerp(tint,light))
+	draw_sky(tint,final_area)
+	for layer in ridges.size():
+		draw_set_transform(Vector2(parallax*(.48-layer*.105),0))
+		var mountain := Color("#746f72").lerp(INK,layer*.19+.20)
+		draw_colored_polygon(ridges[layer],mountain.darkened(.38) if final_area else mountain)
+		draw_polyline(ridge_edges[layer],Color(tint,.08),1.5,true)
+	draw_set_transform(Vector2.ZERO)
+
+func draw_campaign_sky() -> bool:
+	var key: String = "04_the_wane" if ending else NIGHT_SKIES.get(area,"")
+	if not key.is_empty() and campaign_art.get(key):
+		var x := floorf(parallax * .93 / 6.0)*6.0
+		var lighting := Color("#d5cced").lerp(Color("#e68f88"),clampf(mood-1.0,0,1)) if area == "throne" else Color.WHITE
+		if area == "throne" and mood > 2.0:
+			lighting = lighting.lerp(Color("#fff1c0"),clampf(mood-2.0,0,1))
+		draw_texture_rect(campaign_art[key],Rect2(x-128,-86,1536,864),false,lighting)
+		if area == "underworld":
+			var fading := 1.0-smoothstep(0.8,7.4,time-backdrop_time)
+			draw_day(fading*.76,Color("#858cae"))
+		return true
+	if campaign_art.get("fond"):
+		draw_day(1.0,Color("#ffe8c8") if area == "courtyard" else Color("#d0ba96"))
+		return true
+	return false
+
+func draw_day(alpha: float, tone: Color) -> void:
+	if alpha < .005:
+		return
+	for index in DAY_LAYERS.size():
+		var key: String = DAY_LAYERS[index]
+		var texture: Texture2D = campaign_art.get(key)
+		if texture == null:
+			continue
+		var motion := time*9.0 if key == "cloud" else 0.0
+		var anchor := floorf((parallax*(.92-index*.062)-motion)/5.0)*5.0
+		var color := Color(tone,alpha)
+		if area == "courtyard" and index >= 3:
+			var tones := [Color("#d9b6a8"),Color("#bcaba2"),Color("#9f9697"),Color("#989a84"),Color("#98a09a"),Color("#7f8991")]
+			color = Color(tones[index-3],alpha)
+		elif index >= 6 and area == "road":
+			color = Color("#a4bd80",alpha)
+		var first_tile := floori((parallax-400.0-anchor)/1280)
+		for tile in range(first_tile,first_tile+3):
+			draw_texture_rect(texture,Rect2(anchor+1280*tile,-60,1280,640),false,color)
+
+func draw_crossing(tint: Color) -> void:
+	if not BRIDGES.has(area):
+		return
+	var bridge: Rect2 = BRIDGES[area]
+	draw_rect(Rect2(bridge.position.x,FLOOR,bridge.size.x,340),Color("#171e31"))
+	for i in 25:
+		var x := bridge.position.x+fposmod(i*73+time*6,bridge.size.x-100.0)
+		var y := 655.0+i*17%80
+		draw_rect(Rect2(x,y,21+i*3%82,2),Color(tint,.08+i%3*.07))
+	var key := "stone_bridge" if area == "road" else "wood_bridge"
+	var plate: Texture2D = campaign_art[key]
+	var repeat := 4
+	var scale_px := bridge.size.x/repeat/plate.get_width()
+	draw_rect(Rect2(bridge.position.x,FLOOR,bridge.size.x,12),Color("#403240") if area == "road" else Color("#40332c"))
+	for i in repeat:
+		var x := bridge.position.x+i*bridge.size.x/repeat
+		draw_texture_rect(plate,Rect2(x,FLOOR,bridge.size.x/repeat,plate.get_height()*scale_px),false,Color.WHITE if area=="road" else Color("#96add0"))
+	draw_rect(Rect2(bridge.position.x,FLOOR-2,bridge.size.x,3),Color(tint,.58))
+	for x: float in [bridge.position.x,bridge.end.x]:
+		draw_rect(Rect2(x-7,FLOOR-40,14,43),Color("#372934"))
+		draw_rect(Rect2(x-9,FLOOR-43,18,7),Color(tint,.84))
+
+func draw_briars() -> void:
+	for i in 13:
+		var at := Vector2(FOREST_BRIARS.position.x+i*8,FLOOR)
+		polygon([at,at+Vector2(3,-8-i%3*4),at+Vector2(8,0)],Color("#c17b74"))
+
+func draw_gate_lock(tint: Color) -> void:
+	if gate_closed <= 0.0:
+		return
+	var x := exit_x-16
+	var slide := 1.0-gate_closed
+	for i in 9:
+		draw_rect(Rect2(x-54+i*12,360-slide*205,6,207),Color("#634b68"))
+	draw_rect(Rect2(x-58,393-slide*205,117,8),Color(tint,.70))
 
 func draw_sky(tint: Color, eclipse: bool) -> void:
 	var center := Vector2(678 + parallax*.70,197)
@@ -239,20 +359,13 @@ func draw_road(tint: Color) -> void:
 				draw_circle(foot+Vector2(sin(p*7+flame)*8,-p*75),5*(1-p)+1,Color("#d78969",(1-p)*.32))
 	for i in 18:
 		var x := 35.0+i*171
-		if x>1230 and x<1570:
+		if x>390 and x<1254:
 			continue
 		tree(Vector2(x,FLOOR),103+(i*31%105),tint)
 	for i in 12:
 		var x := 290.0+i*219
 		draw_colored_polygon(PackedVector2Array([Vector2(x-13,572),Vector2(x-10,541),Vector2(x+3,532),Vector2(x+14,544),Vector2(x+17,572)]),Color("#3b343c"))
 		draw_line(Vector2(x-3,546),Vector2(x-1,562),Color(tint,.38),1.2,true)
-	# The fallen bridge has a walkable stone bed, with broken timber below it.
-	for i in 14:
-		var x := 1280.0+i*17
-		draw_line(Vector2(x,555),Vector2(x+8,575+(i*13%31)),Color("#453b42"),5,true)
-	for x: float in [1263,1535]:
-		draw_line(Vector2(x,526),Vector2(x,574),Color("#27232c"),6,true)
-	draw_polyline(PackedVector2Array([Vector2(1263,528),Vector2(1328,544),Vector2(1417,563),Vector2(1490,545),Vector2(1535,528)]),Color("#29242b"),2.1,true)
 	for point in [Vector2(701,571),Vector2(1744,569),Vector2(2722,572)]:
 		relic(point,tint)
 	gate_art(area_width-119,187,tint,true)
@@ -297,6 +410,8 @@ func draw_shrine(tint: Color) -> void:
 func draw_underworld(tint: Color) -> void:
 	for i in 9:
 		var x := 114.0+i*235
+		if x > 350.0 and x < 1150.0:
+			continue
 		pillar(x,45.0+i%3*5,192.0+i%4*36,tint)
 		var ember := Vector2(x+62,482)
 		draw_circle(ember,38,Color(tint,.11))
@@ -321,9 +436,6 @@ func draw_frozen(tint: Color) -> void:
 		var x := fposmod(i*97.91-time*(13+i%9),area_width)
 		var y := fposmod(i*61.3+time*(13+i%15),560.0)
 		draw_circle(Vector2(x,y),1.0+i%3*.45,Color("#e1f1fa",.22+i%5*.09))
-	for x: float in OBSTACLES.frozen:
-		polygon([Vector2(x-19,572),Vector2(x-19,542),Vector2(x-5,530),Vector2(x+19,540),Vector2(x+19,572)],Color("#587789"))
-		draw_line(Vector2(x-15,541),Vector2(x-5,531),Color("#c9e5ef"),2,true)
 	gate_art(area_width-119,217,tint,true)
 
 func draw_throne(tint: Color) -> void:

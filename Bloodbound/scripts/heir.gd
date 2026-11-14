@@ -55,7 +55,14 @@ func _ready() -> void:
 	reset()
 
 func reset() -> void:
+	progression = PROGRESSION.duplicate()
 	progression.reset()
+	strike_id = 0
+	strike_data = {}
+	combo = 0
+	visual_time = 0.0
+	parry_success = false
+	swing_started = false
 	phantom = false
 	awakened = false
 	velocity = Vector2.ZERO
@@ -117,7 +124,7 @@ func defend(strike) -> String:
 		return "evade"
 	health = Damage.remaining(health,strike.damage)
 	iframe = 0.76
-	velocity = Vector2(strike.direction * 264, -152)
+	velocity = Vector2(strike.direction * strike.knockback, -152)
 	mode = Mode.HURT
 	clock = 0.0
 	swing_buffer = 0.0
@@ -202,14 +209,17 @@ func simulate(dt: float) -> void:
 				pose = "jump_start" if velocity.y < -414 else ("rise" if velocity.y < 0 else "fall")
 			elif landing > 0:
 				pose = "land"
-			phase = visual_time
+			phase = minf(1.0,1.0-landing/.12) if pose == "land" else visual_time
 		Mode.DASH:
 			pose = "dash" if phantom or not is_zero_approx(axis) else "dodge"
 			var duration := float(progression.phantom_duration) if phantom else number("movement","dash_time")
 			var speed := float(progression.phantom_speed) if phantom else number("movement","dash_speed")
 			phase = clock / duration
 			velocity = Vector2(facing * speed, 0)
-			if phase >= 1:
+			if pressed and not phantom:
+				combo = 0
+				begin_attack("dash_slash")
+			elif phase >= 1:
 				enable()
 		Mode.PARRY:
 			pose = "parry_success" if parry_success else "parry"

@@ -1,9 +1,11 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/throne.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/arena.gd" id="2"]
 [ext_resource type="PackedScene" path="res://scenes/Heir.tscn" id="3"]
 [ext_resource type="PackedScene" path="res://scenes/Sovereign.tscn" id="4"]
+
+[ext_resource type="PackedScene" path="res://scenes/DemonOverlord.tscn" id="5"]
 
 [node name="ForgottenThrone" type="Node2D"]
 script = ExtResource("1")
@@ -16,3 +18,7 @@ position = Vector2(290, 572)
 
 [node name="Sovereign" parent="." instance=ExtResource("4")]
 position = Vector2(940, 572)
+
+[node name="DemonOverlord" parent="." instance=ExtResource("5")]
+visible = false
+position = Vector2(910, 572)

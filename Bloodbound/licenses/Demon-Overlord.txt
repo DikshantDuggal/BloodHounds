@@ -1,0 +1,22 @@
+-LICENSE-
+
+"Demon Overlord 2D Pixel Art" - version 1.0.0
+
+This pack is released free of charge for use in your own projects, under the
+terms below. The artwork was generated with AI tools, then manually cleaned up,
+colour-keyed, aligned and packaged by hand.
+
+- You can use this asset in any game project, personal or commercial.
+- You can use it in free games, paid games, game jams and prototypes.
+- DO NOT resell or redistribute AS A GAME ASSET, it has to be part of a project.
+- DO NOT re-upload this pack, or a modified version of it, as a free or paid
+  asset pack.
+- Credit is not required but it is appreciated.
+  If you want to credit it, credit "Demon Overlord 2D Pixel Art".
+- Modify to suit your needs.
+- You are NOT allowed to turn any of my assets to an NFT.
+
+Provided as-is, without warranty of any kind. If it breaks your project, that
+is on you - test it in your own engine before shipping.
+
+If you use it, I would love to see what you made with it.

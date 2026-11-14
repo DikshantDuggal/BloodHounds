@@ -6,6 +6,7 @@ var direction: float
 var parryable: bool
 var source: String
 var id: int
+var knockback := 264.0
 
 func _init(area: Rect2, strength: float, facing: float, can_parry: bool, tag: String, token: int) -> void:
 	box = area

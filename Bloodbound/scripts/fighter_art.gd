@@ -7,9 +7,12 @@ var imported: AnimatedSprite2D
 var last_imported_pose := ""
 var boss := false
 var palette: Dictionary
-var white_blade := false
-var weapon_texture: Texture2D
-var weapon_rect: Rect2
+var weapon_pivot: Node2D
+var weapon_sprite: Sprite2D
+var weapon_tracks: Dictionary
+var weapon_grip: Vector2
+var weapon_scale: float
+var released_weapon := false
 var source_facing: int
 var phase_locked: Array
 var animation_weights: Dictionary = {}
@@ -19,11 +22,23 @@ func setup(target: Node2D, large: bool) -> void:
 	actor = target
 	boss = large
 	profile = actor.profile
-	for key: String in ["armor", "edge", "accent", "steel", "awakened", "final"]:
+	for key: String in ["armor", "edge", "accent", "steel", "awakened"]:
 		palette[key] = profile.get_value("visual", key, Color.WHITE)
-	weapon_texture = profile.optional("weapon", "texture", "Texture2D") as Texture2D
-	weapon_rect = profile.get_value("weapon", "rect", Rect2(-8, -8, 67, 16))
 	if not boss:
+		weapon_tracks = profile.get_value("weapon","tracks",{})
+		weapon_grip = profile.get_value("weapon","grip",Vector2(8.5,52.5))
+		weapon_scale = profile.get_value("weapon","scale",1.65)
+		weapon_pivot = Node2D.new()
+		weapon_pivot.name = "WeaponPivot"
+		weapon_pivot.z_index = 1
+		add_child(weapon_pivot)
+		weapon_sprite = Sprite2D.new()
+		weapon_sprite.name = "Ketsumei"
+		weapon_sprite.texture = profile.optional("weapon","texture","Texture2D") as Texture2D
+		weapon_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		weapon_sprite.centered = false
+		weapon_sprite.offset = -weapon_grip
+		weapon_pivot.add_child(weapon_sprite)
 		for expression: String in ["neutral","focused","hurt","returning"]:
 			face_art[expression] = profile.optional("faces",expression,"Texture2D")
 	var frames := profile.optional("visual", "frames", "SpriteFrames") as SpriteFrames
@@ -38,6 +53,11 @@ func setup(target: Node2D, large: bool) -> void:
 			imported.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		add_child(imported)
 
+func reset_animation() -> void:
+	last_imported_pose = ""
+	if imported:
+		imported.stop()
+
 func animation_for(pose: String) -> StringName:
 	if imported:
 		var name: StringName = profile.get_value("animations", pose, pose)
@@ -47,22 +67,24 @@ func animation_for(pose: String) -> StringName:
 
 func redraw() -> void:
 	if imported:
-		var name := animation_for(actor.pose)
-		var dissolved: bool = boss and actor.pose == "dissolve" and actor.phase >= .27
+		var view_pose: String = "hurt" if boss and actor.authored_death and actor.hurt_flash > 0 and actor.mode == actor.Mode.RECOVER else actor.pose
+		var name := animation_for(view_pose)
+		var dissolved: bool = boss and actor.pose == "dissolve" and actor.phase >= .27 and not actor.authored_death
 		imported.visible = not dissolved and not name.is_empty()
 		if imported.visible:
 			imported.flip_h = actor.facing * source_facing < 0
 			var speed: float = profile.get_value("animation_speed", actor.pose, profile.get_value("visual", "speed", 1.0))
-			var follows_phase: bool = actor.pose in phase_locked
-			if last_imported_pose != actor.pose:
+			var follows_phase: bool = view_pose in phase_locked
+			if last_imported_pose != view_pose:
 				imported.stop()
 				imported.speed_scale = speed
 				imported.play(name)
 				if follows_phase:
 					imported.pause()
-				last_imported_pose = actor.pose
+				last_imported_pose = view_pose
 			if follows_phase:
-				sample_pose(name, clampf(actor.phase * speed, 0, 1))
+				var progress: float = 1.0-actor.hurt_flash/.17 if view_pose == "hurt" else actor.phase
+				sample_pose(name,clampf(progress*speed,0,1))
 			var tint := Color.WHITE
 			if boss:
 				tint = Color("#e6dcff") if actor.stage < 2 else Color("#dab5ff")
@@ -70,13 +92,47 @@ func redraw() -> void:
 					tint.a = 1.0 - clampf(actor.phase, 0, 1) * .55
 				if actor.hurt_flash > 0:
 					tint = Color("#ffc4d8")
-				if actor.pose == "dissolve":
+				if actor.pose == "dissolve" and not actor.authored_death:
 					tint.a = 1.0 - smoothstep(0.0, .27, actor.phase)
 			imported.modulate = tint
 		elif not last_imported_pose.is_empty():
 			imported.stop()
 			last_imported_pose = ""
+	if weapon_pivot and not released_weapon:
+		weapon_pivot.transform = hand_transform()
 	queue_redraw()
+
+func hand_transform() -> Transform2D:
+	var marker := Vector3(100,90,-36)
+	var at := Vector2(16,-47)
+	if imported and imported.visible:
+		var keys: Array = weapon_tracks.get(actor.pose,weapon_tracks.get(String(imported.animation),[]))
+		if not keys.is_empty():
+			var frame := mini(imported.frame,keys.size()-1)
+			marker = keys[frame]
+			if frame+1 < keys.size():
+				marker.z = rad_to_deg(lerp_angle(deg_to_rad(marker.z),deg_to_rad(keys[frame+1].z),imported.frame_progress))
+		var frame_size := imported.sprite_frames.get_frame_texture(imported.animation,imported.frame).get_size()
+		at = imported.position + (Vector2(marker.x,marker.y)-frame_size*.5)*imported.scale
+	else:
+		var progress := clampf(actor.phase,0.0,1.0)
+		match actor.pose:
+			"light_1","light_3","dash_slash","heavy","air","sever","intro_slash","final_strike":
+				marker.z = lerpf(-99,135,smoothstep(0.0,.68,progress))
+				at.x = lerpf(12,32,smoothstep(.12,.62,progress))
+			"light_2":
+				marker.z = lerpf(145,-7,smoothstep(.06,.79,progress))
+			"parry","parry_success","charge","final_prepare":
+				at.y = -55
+				marker.z = 34
+			"death","fallen":
+				at = at.lerp(Vector2(20,-7),progress)
+			"resurrect":
+				at = Vector2(20,-7).lerp(at,progress)
+			"dash","dodge","final_dash","run","walk":
+				marker.z = -102
+	var side: float = actor.facing
+	return Transform2D(0,Vector2(side,1)*weapon_scale,0,Vector2(at.x*side,at.y).round()) * Transform2D(deg_to_rad(marker.z),Vector2.ZERO)
 
 func sample_pose(name: StringName, progress: float) -> void:
 	if not animation_weights.has(name):
@@ -95,7 +151,7 @@ func sample_pose(name: StringName, progress: float) -> void:
 func _draw() -> void:
 	if not is_instance_valid(actor):
 		return
-	if boss and actor.pose == "dissolve" and actor.phase >= 0.27:
+	if boss and actor.pose == "dissolve" and actor.phase >= 0.27 and (not actor.authored_death or not imported):
 		return
 	draw_set_transform(Vector2.ZERO, 0, Vector2(1.0, 0.20))
 	draw_circle(Vector2.ZERO, 55.0 if boss else 31.0, Color(.02, .01, .03, .62))
@@ -108,11 +164,6 @@ func _draw() -> void:
 	var armor: Color = palette.armor
 	var edge: Color = palette.edge
 	var accent: Color = palette.accent
-	var blade: Color = palette.steel
-	if not boss and actor.awakened:
-		blade = palette.awakened
-	if white_blade:
-		blade = palette.final
 	var bob := sin(t * (2.5 if boss else 4.6)) * (1.8 if boss else 1.05)
 	if not boss and actor.health > 0 and actor.health <= actor.maximum*.30:
 		bob += sin(t*10.0)*.83
@@ -121,7 +172,7 @@ func _draw() -> void:
 	var crouch := 0.0
 	var angle := .36
 	var wind := sin(t * 6.8) * 3.0
-	var attacking := state in ["light_1", "light_2", "light_3", "air", "heavy", "sever", "intro_slash", "cleave", "slam", "rush", "throne", "final_strike"]
+	var attacking := state in ["light_1", "light_2", "light_3", "dash_slash", "air", "heavy", "sever", "intro_slash", "cleave", "slam", "rush", "throne", "final_strike"]
 	var charging := state in ["charge", "final_prepare", "doom", "final_attack"] or state.ends_with("_wind") or state == "draw_blade"
 	var airborne := state in ["jump_start", "rise", "fall", "air"]
 	var dashing := state in ["dash", "dodge", "rush", "final_dash"]
@@ -224,8 +275,6 @@ func _draw() -> void:
 		crown(t, state, accent, alpha)
 	else:
 		draw_hero_face(state,t,wind,accent,alpha)
-		draw_line(Vector2(3,6),Vector2(-28,20),Color("#211926",alpha),4.8,true)
-		draw_line(Vector2(1,7),Vector2(-26,19),Color(edge,.52*alpha),1.05,true)
 	if not boss:
 		poly([Vector2(7,-23), Vector2(-13,-24), Vector2(-24 + wind,-23),
 			Vector2(-36 + wind,-16), Vector2(-23 + wind,-19), Vector2(-13,-18), Vector2(7,-19)], Color(accent.darkened(.27), alpha))
@@ -241,16 +290,8 @@ func _draw() -> void:
 	draw_line(shoulder.lerp(hand, .4), hand, Color(edge, alpha * .78), 2.2, true)
 	poly([shoulder + Vector2(-6,-5), shoulder + Vector2(4,-5), shoulder + Vector2(8,0),
 		shoulder + Vector2(1,7), shoulder + Vector2(-5,4)], Color(armor.lightened(.11), alpha))
-	if not fallen or state == "resurrect":
-		var sword_scale := 1.12 if boss else 1.19
-		var glow: bool = white_blade or (not boss and actor.awakened)
-		if weapon_texture:
-			var body_transform := Transform2D(face * lean, Vector2(face * unit, unit), 0.0, root)
-			draw_set_transform_matrix(body_transform * Transform2D(angle, hand))
-			var tint := Color.WHITE.lerp(blade, .47) if glow else Color.WHITE
-			draw_texture_rect(weapon_texture, weapon_rect, false, Color(tint, alpha))
-		else:
-			sword(hand, angle, blade, accent, sword_scale, alpha, glow)
+	if boss and not fallen:
+		draw_sovereign_weapon(hand, angle, palette.steel, accent, alpha)
 	draw_set_transform(Vector2.ZERO)
 
 func draw_hero_face(state: String, time: float, wind: float, accent: Color, alpha: float) -> void:
@@ -305,15 +346,12 @@ func crown(t: float, state: String, accent: Color, alpha: float) -> void:
 		line([Vector2(x - 4,y+2), Vector2(x-6,y-6), Vector2(x,y-1),
 			Vector2(x+3,y-7), Vector2(x+4,y+1), Vector2(x-4,y+2)], Color(accent, alpha * .81), .72)
 
-func sword(hand: Vector2, angle: float, blade: Color, accent: Color, length: float, alpha: float, glow: bool) -> void:
+func draw_sovereign_weapon(hand: Vector2, angle: float, blade: Color, accent: Color, alpha: float) -> void:
 	var d := Vector2.from_angle(angle)
 	var n := d.orthogonal()
 	var origin := hand + d * 4
-	var tip := origin + d * (44.0 * length)
+	var tip := origin + d * 49.28
 	var shoulder := origin + d * 7
-	if glow:
-		for width: float in [13, 8, 4]:
-			draw_line(origin, tip, Color(accent.lerp(blade,.48), alpha * .12), width, true)
 	poly([origin - n*2.6, shoulder - n*3.3, tip, tip - d*7 + n*2.2, origin + n*2.4], Color(blade, alpha))
 	draw_line(origin - n * 2.6, tip, Color(blade.lightened(.45), alpha * .92), .8, true)
 	draw_line(hand - n*6.5, hand + n*6.5, Color(accent.darkened(.18), alpha), 2.3, true)
