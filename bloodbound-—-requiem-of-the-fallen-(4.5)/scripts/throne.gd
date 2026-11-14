@@ -1,0 +1,1152 @@
+extends Node2D
+
+signal state_changed(state: int)
+
+const Profile = preload("res://scripts/profile.gd")
+const Bindings = preload("res://scripts/bindings.gd")
+const Strike = preload("res://scripts/strike.gd")
+const Art = preload("res://scripts/fighter_art.gd")
+const Effects = preload("res://scripts/effects.gd")
+const Camera = preload("res://scripts/camera_director.gd")
+const Interface = preload("res://scripts/interface.gd")
+const Sound = preload("res://scripts/soundscape.gd")
+const Story = preload("res://scripts/story.gd")
+const Journey = preload("res://scripts/journey.gd")
+const Powers = preload("res://scripts/powers.gd")
+
+enum State { TITLE, REVEAL, PROLOGUE, DOOM, AWAKEN, FIGHT, TRANSITION,
+	FLASH_PREP, FLASH_OPEN, LAST_CHANCE, EXECUTE, VICTORY, DEFEAT,
+	APPROACH, MEMORIAL, RESURRECTING, DEPARTURE, FINAL_REVEAL, EPILOGUE, UNLOCK, CHALLENGER }
+
+@onready var hero = $Heir
+@onready var boss = $Sovereign
+@onready var arena = $Arena
+
+var profile := Profile.new("res://resources/encounter.cfg")
+var hero_art := Art.new()
+var boss_art := Art.new()
+var effects := Effects.new()
+var camera := Camera.new()
+var ui := Interface.new()
+var sound := Sound.new()
+var story := Story.new()
+var journey := Journey.new()
+var departure_origin := 0.0
+var resume_state := State.APPROACH
+var reversal := false
+var powers := Powers.new()
+var unlock_ability := ""
+var unlock_origin := Vector2.ZERO
+var unlock_impact := false
+var challenger: CharacterBody2D
+var challenger_transform := false
+var low_health := false
+var heartbeat := 0.0
+var low_health_seen := false
+var parry_notice := 0.0
+var reversal_meter: float:
+	get: return hero.energy
+	set(value): hero.energy = value
+var reversal_cooldown: float:
+	get: return powers.cooldowns.get("reversal",0.0)
+	set(value): powers.cooldowns["reversal"] = value
+var morality_score := 0
+var resurrection_charges: int:
+	get: return hero.progression.charges
+	set(value): hero.progression.charges = value
+var max_resurrections: int:
+	get: return hero.progression.charge_limit
+var resurrection_flash_pending := false
+var animator := AnimationPlayer.new()
+var state := State.TITLE
+var next_stage := 0
+var clock := 0.0
+var elapsed := 0.0
+var fight_time := 0.0
+var parries := 0
+var flash_level := 0.0
+var flash_color := Color.WHITE
+var paused := false
+var quitting := false
+var debug_enabled := false
+var consumed_strike := -1
+var stop_time := 0.0
+var shatter_played := false
+var slash_played := false
+var awakening_played := false
+var missed_wave := false
+var execute_from := Vector2.ZERO
+var execute_to := Vector2.ZERO
+var fallen_from := Vector2.ZERO
+var desired_mood := 0.0
+var ghost_clock := 0.0
+
+func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	Bindings.install()
+	get_tree().auto_accept_quit = false
+	debug_enabled = OS.is_debug_build() and (profile.get_value("debug", "enabled", false)
+		or "--dev" in OS.get_cmdline_user_args())
+	add_child(camera)
+	camera.make_current()
+	camera.position = Vector2(640, 360)
+	add_child(effects)
+	effects.hero = hero
+	effects.boss = boss
+	effects.director = self
+	hero.add_child(hero_art)
+	hero_art.setup(hero, false)
+	boss.add_child(boss_art)
+	boss_art.setup(boss, true)
+	add_child(sound)
+	sound.setup(profile)
+	var boss_frames: SpriteFrames = boss_art.imported.sprite_frames if boss_art.imported else null
+	story.setup(profile, sound, boss_frames)
+	arena.set_profile(profile)
+	add_child(journey)
+	journey.game = self
+	story.animation_requested.connect(func(pose: String) -> void: hero.script_pose(pose))
+	add_child(ui)
+	ui.setup(self)
+	add_child(animator)
+	setup_animation_library()
+	hero.swung.connect(hero_strike)
+	hero.action.connect(hero_cue)
+	hero.died.connect(hero_died)
+	boss.swung.connect(boss_strike)
+	boss.telegraph.connect(boss_warning)
+	boss.impact.connect(boss_impact)
+	ui.requested.connect(command)
+	to_title()
+
+func setup_animation_library() -> void:
+	var library := AnimationLibrary.new()
+	for spec in [["crimson", .63, .87], ["white", .28, .93], ["violet", .55, .35], ["dust", .55, .26]]:
+		var animation := Animation.new()
+		animation.length = spec[1]
+		var channel := animation.add_track(Animation.TYPE_VALUE)
+		animation.track_set_path(channel, NodePath(".:flash_level"))
+		animation.track_insert_key(channel, 0, spec[2])
+		animation.track_insert_key(channel, float(spec[1]) * .27, float(spec[2]) * .43)
+		animation.track_insert_key(channel, spec[1], 0.0)
+		library.add_animation(spec[0], animation)
+	animator.add_animation_library(&"", library)
+
+func pulse(name: StringName, color: Color) -> void:
+	flash_color = color
+	animator.stop()
+	animator.play(name)
+	animator.advance(0)
+
+func timing(key: String) -> float:
+	return float(profile.get_value("timing", key, 0.0))
+
+func transition_to(value: State) -> void:
+	state = value
+	clock = 0
+	stop_time = 0
+	state_changed.emit(state)
+
+func is_fight() -> bool:
+	return state in [State.PROLOGUE, State.FIGHT]
+
+func shows_hud() -> bool:
+	return state in [State.PROLOGUE, State.FIGHT, State.LAST_CHANCE, State.APPROACH]
+
+func to_title() -> void:
+	set_paused(false)
+	clean()
+	transition_to(State.TITLE)
+	hero.position = Vector2(724, 572)
+	boss.position = Vector2(985, 572)
+	hero.script_pose("idle")
+	boss.script_pose("intro")
+	camera.position = Vector2(640, 360)
+	camera.zoom = Vector2.ONE
+	arena.mood = 0.0
+	desired_mood = 0.0
+	sound.play_track("main_menu")
+	ui.show_panel("title")
+
+func clean() -> void:
+	hero.reset()
+	boss.reset()
+	effects.clear()
+	hero_art.white_blade = false
+	hero_art.blessing = 0.0
+	boss_art.white_blade = false
+	consumed_strike = -1
+	flash_level = 0
+	animator.stop()
+	parries = 0
+	fight_time = 0
+	journey.reset()
+	story.stop()
+	reset_powers()
+	unlock_ability = ""
+	challenger = null
+	low_health = false
+	low_health_seen = false
+	heartbeat = 0
+	parry_notice = 0
+	reversal = false
+	morality_score = 0
+	arena.set_area("courtyard")
+	boss.visible = true
+	awakening_played = false
+	shatter_played = false
+	slash_played = false
+	missed_wave = false
+	next_stage = 0
+	camera.shake = 0
+
+func begin() -> void:
+	clean()
+	ui.show_panel("")
+	hero.position = Vector2(161, 572)
+	boss.position = Vector2(964, 572)
+	reveal()
+
+func wake_in_courtyard() -> void:
+	hero.progression.resurrect()
+	hero.awakened = true
+	hero.health = hero.maximum
+	hero.energy = 26.0
+	resurrection_charges = max_resurrections
+	var wake_x := clampf(fallen_from.x,174.0,1070.0)
+	journey.enter("courtyard",wake_x)
+	arena.gate_closed = 1.0
+	level_reward(1,"courtyard",wake_x)
+
+func reset_powers() -> void:
+	powers.reset()
+	low_health = false
+	heartbeat = 0.0
+
+func update_health_cues(dt: float) -> void:
+	var threatened: bool = hero.health > 0 and hero.health <= hero.maximum * .30
+	if threatened and not low_health_seen:
+		low_health_seen = true
+		pulse("dust",Color("#9c2c4d"))
+	low_health = threatened
+	if low_health:
+		heartbeat -= dt
+		if heartbeat <= 0.0:
+			heartbeat = .86
+			if sound.bank.get("heartbeat"):
+				sound.cue("heartbeat")
+	else:
+		heartbeat = 0.0
+
+func level_reward(level: int, area: String, x: float) -> void:
+	var ability: String = hero.progression.unlock_for(level)
+	hero.progression.refill()
+	if level == 4:
+		hero.energy = hero.progression.energy_limit
+	journey.save_checkpoint(area,x)
+	if ability.is_empty():
+		hero.enable()
+		transition_to(State.APPROACH)
+		return
+	journey.interrupt()
+	powers.clear_attacks()
+	unlock_ability = ability
+	unlock_origin = hero.position
+	unlock_impact = false
+	hero.script_pose("final_prepare")
+	sound.cue("buildup")
+	transition_to(State.UNLOCK)
+
+func tick_unlock(dt: float) -> void:
+	var p := clampf(clock / 1.75,0,1)
+	var tint: Color = Powers.COLORS[unlock_ability]
+	hero.visual_time += dt
+	hero.phase = p
+	if p >= .30 and not unlock_impact:
+		unlock_impact = true
+		sound.cue("awakening")
+		pulse("dust",tint)
+		effects.burst(hero.position + Vector2(0,-37),tint,42,220,-34,.60)
+		effects.ghost(hero.position,hero.facing,tint)
+		effects.arc(hero.position+Vector2(0,-40),hero.facing,92,tint)
+	if p >= .30:
+		match unlock_ability:
+			"phantom":
+				hero.pose = "final_dash" if p < .54 else "finish"
+				var move_by: float = hero.facing * 114.0
+				var end := clampf(unlock_origin.x+move_by,103,arena.exit_x-25)
+				hero.position.x = lerpf(unlock_origin.x,end,smoothstep(.30,.54,p))
+			"sever":
+				hero.pose = "sever" if p < .68 else "finish"
+			"reversal":
+				hero.pose = "reversal" if p < .58 else "resurrect"
+				hero.phase = smoothstep(.58,1.0,p) if p >= .58 else smoothstep(.30,.58,p)
+			"echo":
+				hero.pose = "light_3" if p < .65 else "finish"
+			_:
+				hero.pose = "resurrect" if p < .66 else "idle"
+	if p >= 1.0:
+		finish_unlock()
+
+func finish_unlock() -> void:
+	if state != State.UNLOCK:
+		return
+	hero.enable()
+	hero.iframe = maxf(hero.iframe,.50)
+	if unlock_ability == "reversal":
+		journey.announce("Q  DEATH REVERSAL READY",5.2)
+	transition_to(State.APPROACH)
+
+func show_challenger(enemy: CharacterBody2D, transformed: bool) -> void:
+	if state != State.APPROACH:
+		return
+	challenger = enemy
+	challenger_transform = transformed
+	journey.interrupt()
+	powers.clear_attacks()
+	hero.script_pose("parry" if transformed else "idle")
+	if transformed:
+		pulse("dust",enemy.accent)
+		effects.burst(enemy.position + Vector2(0,-65),enemy.accent,47,217,45,.75)
+		sound.cue("phase")
+	else:
+		sound.cue("tell")
+	transition_to(State.CHALLENGER)
+
+func finish_challenger() -> void:
+	challenger = null
+	hero.enable()
+	transition_to(State.APPROACH)
+
+func show_memorial() -> void:
+	transition_to(State.MEMORIAL)
+	hero.script_pose("idle")
+	story.begin(profile.get_value("story", "memorial", []))
+
+func leave_memorial() -> void:
+	story.stop()
+	level_reward(3,"shrine",2050)
+	sound.play_track("shrine")
+
+func realm() -> String:
+	return "abyss" if morality_score < 0 else "celestial"
+
+func resurrection_duration() -> float:
+	return maxf(.35, float(profile.get_value("resurrection", "duration", 1.20)))
+
+func reveal() -> void:
+	story.stop()
+	arena.set_area("courtyard")
+	boss.visible = true
+	boss.position = Vector2(964, 572)
+	hero.position = Vector2(128, 572)
+	boss.script_pose("idle")
+	hero.script_pose("run")
+	transition_to(State.REVEAL)
+	sound.play_track("boss_intro")
+
+func start_prologue() -> void:
+	arena.set_area("courtyard")
+	boss.visible = true
+	hero.position = Vector2(286,572)
+	hero.enable()
+	boss.enter_stage(0)
+	transition_to(State.PROLOGUE)
+	sound.play_track("opening_duel", "boss_phase_1")
+
+func begin_doom() -> void:
+	if state != State.PROLOGUE:
+		return
+	transition_to(State.DOOM)
+	hero.facing = -1.0 if boss.position.x < hero.position.x else 1.0
+	hero.script_pose("hurt")
+	boss.facing = -hero.facing
+	boss.script_pose("doom")
+	sound.play_track("")
+	sound.cue("buildup")
+
+func begin_departure() -> void:
+	transition_to(State.DEPARTURE)
+	departure_origin = boss.position.x
+	hero.health = 0
+	fallen_from = hero.position
+	hero.script_pose("death")
+	boss.script_pose("doom_recover")
+	effects.arc(boss.position + Vector2(60 * boss.facing, -83), boss.facing, 194, Color("#e55984"))
+	awakening_played = false
+	sound.play_track("first_death", "")
+	sound.cue("death")
+	pulse("dust", Color("#bd345e"))
+	camera.kick(7.6)
+	effects.burst(hero.position + Vector2(0,-31), Color("#e985a5"), 34, 208)
+
+func start_awakening() -> void:
+	boss.hide()
+	boss.script_pose("idle")
+	arena.gate_closed = 1.0
+	transition_to(State.AWAKEN)
+
+func reveal_final() -> void:
+	journey.clear_enemies()
+	arena.set_area("throne")
+	boss.reset()
+	boss.show()
+	hero.position = Vector2(320,572)
+	boss.position = Vector2(910,572)
+	hero.script_pose("idle")
+	camera.snap_path(640,1280)
+	transition_to(State.FINAL_REVEAL)
+	sound.play_track("boss_intro")
+
+func enter_duel() -> void:
+	journey.clear_enemies()
+	arena.set_area("throne")
+	boss.reset()
+	boss.show()
+	hero.position = Vector2(436, 572)
+	boss.position = Vector2(716, 572)
+	hero.facing = 1.0
+	boss.facing = -1.0
+	hero.awakened = true
+	hero.health = hero.maximum
+	hero.iframe = 0.55
+	resurrection_charges = max_resurrections
+	boss.health = boss.maximum
+	desired_mood = 1.0
+	enter_stage(1)
+
+func enter_stage(stage: int) -> void:
+	transition_to(State.FIGHT)
+	hero.enable()
+	boss.enter_stage(stage)
+	hero_art.white_blade = stage == 3
+	sound.play_track(["", "boss_phase_1", "boss_phase_2", "boss_final_phase"][stage])
+	desired_mood = 1.0 if stage == 1 else 2.0
+	resolve_boss_phase()
+
+func start_transition(stage: int) -> void:
+	next_stage = stage
+	transition_to(State.TRANSITION)
+	powers.clear_attacks()
+	boss.stage = stage
+	hero.script_pose("idle")
+	boss.script_pose("crown_break" if stage == 2 else "desperate")
+	sound.cue("phase")
+	pulse("violet", Color("#9764df"))
+	camera.kick(5.0 if stage == 2 else 7.0)
+	effects.burst(boss.position + Vector2(0,-152), Color("#c49af6"), 76, 222, 91, 1.23)
+	desired_mood = 2.0
+	floor_fighters()
+	sound.play_track("boss_transform", "boss_phase_2")
+
+func begin_flash() -> void:
+	hero.progression.unlock_for(6)
+	powers.clear_attacks()
+	transition_to(State.FLASH_PREP)
+	floor_fighters()
+	hero.position.x = 398
+	boss.position.x = 798
+	hero.facing = 1.0
+	boss.facing = -1.0
+	hero.script_pose("final_prepare")
+	boss.script_pose("final_attack")
+	sound.play_track("final_flash", "")
+	sound.cue("buildup")
+
+func start_last_chance() -> void:
+	transition_to(State.LAST_CHANCE)
+	hero_art.white_blade = false
+	hero.enable()
+	boss.script_pose("slam_wind")
+	missed_wave = false
+	sound.cue("tell")
+
+func start_execution() -> void:
+	if state != State.FLASH_OPEN:
+		return
+	transition_to(State.EXECUTE)
+	execute_from = hero.position
+	execute_to = Vector2(boss.position.x + 167, 572)
+	hero.script_pose("final_prepare", 1)
+	boss.script_pose("final_attack", 1)
+	slash_played = false
+	shatter_played = false
+	sound.play_track("")
+
+func finish() -> void:
+	morality_score += 1
+	hero.script_pose("victory", 1.0)
+	boss.script_pose("dissolve", 1.0)
+	desired_mood = 3
+	transition_to(State.EPILOGUE)
+	story.begin(profile.get_value("story","ending",[]))
+
+func show_victory() -> void:
+	story.stop()
+	transition_to(State.VICTORY)
+	sound.play_track("victory")
+	ui.show_panel("victory")
+
+func hero_died() -> void:
+	if state == State.PROLOGUE:
+		begin_doom()
+	elif state in [State.APPROACH,State.FIGHT]:
+		if resurrection_charges > 0:
+			start_resurrection(false)
+		else:
+			transition_to(State.DEFEAT)
+			hero.script_pose("death")
+			boss.script_pose("idle")
+			journey.interrupt()
+			ui.show_panel("defeat")
+			sound.cue("death")
+			sound.play_track("")
+
+func reversal_ready() -> bool:
+	return powers.ready(hero,"reversal") and resurrection_charges > 0 and hero.health > 0 \
+		and state in [State.APPROACH,State.FIGHT]
+
+func start_resurrection(voluntary: bool) -> void:
+	resume_state = state
+	reversal = voluntary
+	resurrection_charges -= 1
+	powers.clear_attacks()
+	if reversal:
+		reversal_meter = 0
+		reversal_cooldown = float(profile.get_value("resurrection","reversal_cooldown",25.0))
+	transition_to(State.RESURRECTING)
+	fallen_from = hero.position
+	hero.health = 0
+	hero.script_pose("reversal" if reversal else "death")
+	boss.script_pose("idle")
+	journey.interrupt()
+	effects.clear()
+	resurrection_flash_pending = true
+	sound.cue("buildup" if reversal else "death")
+	sound.play_track("resurrection", "")
+
+func release_reversal() -> void:
+	var radius := float(profile.get_value("resurrection","reversal_radius",190.0))
+	var damage := int(profile.get_value("resurrection","reversal_damage",48))
+	var box := Rect2(hero.position-Vector2(radius,116),Vector2(radius*2,124))
+	hero.strike_id += 1
+	var strike = Strike.new(box,damage,hero.facing,false,"reversal",hero.strike_id)
+	if resume_state == State.APPROACH:
+		journey.strike_enemies(strike)
+	elif boss.hurtbox().intersects(box):
+		strike.direction = signf(boss.position.x - hero.position.x)
+		boss.receive(strike)
+		if state == State.FIGHT:
+			boss.position.x = clampf(boss.position.x + strike.direction*116.0,110,1170)
+			boss.staggered()
+	camera.kick(9.0)
+	effects.burst(hero.position+Vector2(0,-44),Color("#ffecdf"),93,382,23,1.15)
+
+func tick_resurrection() -> void:
+	var progress := clampf(clock / resurrection_duration(),0,1)
+	hero.position.y = lerpf(fallen_from.y,572,smoothstep(0.0,.48,progress))
+	hero.phase = smoothstep(0,.31,progress)
+	var restore_at := clampf(float(profile.get_value("resurrection", "return_time", .78)) / resurrection_duration(), .54, .87)
+	if progress >= restore_at:
+		if resurrection_flash_pending:
+			resurrection_flash_pending = false
+			pulse("white" if reversal else "crimson", Color("#fff5db") if reversal else Color("#ff5979"))
+			sound.cue("awakening")
+			effects.burst(hero.position + Vector2(0,-20),Color("#ff6284"),46,205,-5,.67)
+		hero.pose = "resurrect"
+		hero.phase = smoothstep(restore_at,1,progress)
+	if progress >= 1.0:
+		hero.progression.resurrect()
+		hero.iframe = maxf(0, float(profile.get_value("resurrection", "invulnerability", 1.25)))
+		hero.dash_cd = 0
+		hero.parry_cd = 0
+		hero.enable()
+		boss.idle()
+		boss.clock = -.26
+		transition_to(resume_state)
+		if reversal:
+			release_reversal()
+		resolve_boss_phase()
+		if state == State.FIGHT:
+			hero_art.white_blade = boss.stage == 3
+			sound.play_track(["", "boss_phase_1", "boss_phase_2", "boss_final_phase"][boss.stage])
+		elif state == State.APPROACH:
+			sound.play_track(journey.MUSIC[arena.area])
+
+func set_paused(value: bool) -> void:
+	paused = value
+	get_tree().paused = value
+	hero_art.process_mode = Node.PROCESS_MODE_PAUSABLE
+	boss_art.process_mode = Node.PROCESS_MODE_PAUSABLE
+	animator.process_mode = Node.PROCESS_MODE_PAUSABLE
+	sound.process_mode = Node.PROCESS_MODE_PAUSABLE
+	if value:
+		ui.show_panel("pause")
+	elif ui.menu_name in ["pause", "audio"]:
+		ui.show_panel("")
+
+func command(action: String) -> void:
+	sound.cue("confirm")
+	match action:
+		"begin":
+			begin()
+		"controls", "audio":
+			ui.show_panel(action)
+		"pause":
+			set_paused(true)
+		"resume":
+			set_paused(false)
+		"title":
+			to_title()
+		"retry":
+			set_paused(false)
+			if journey.checkpoint_area.is_empty():
+				begin()
+			else:
+				ui.show_panel("")
+				story.stop()
+				effects.clear()
+				hero_art.white_blade = false
+				journey.retry()
+		"quit":
+			quit_game()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		quit_game()
+
+func quit_game() -> void:
+	if quitting:
+		return
+	quitting = true
+	story.stop()
+	sound.stop_all()
+	# Let the audio mixer release stopped streams before engine shutdown.
+	await get_tree().create_timer(.10,true).timeout
+	get_tree().quit()
+
+func _input(event: InputEvent) -> void:
+	if not is_node_ready() or quitting:
+		return
+	if event.is_action_pressed("pause", false):
+		if ui.menu_name == "controls":
+			ui.show_panel("title")
+		elif ui.menu_name == "audio":
+			ui.show_panel("pause")
+		elif paused:
+			set_paused(false)
+		elif state not in [State.TITLE, State.DEFEAT, State.VICTORY]:
+			set_paused(true)
+		get_viewport().set_input_as_handled()
+		return
+	if paused:
+		return
+	if event.is_action_pressed("retry", false) and state in [State.DEFEAT, State.VICTORY]:
+		command("retry")
+		get_viewport().set_input_as_handled()
+	if event.is_action_pressed("confirm", false):
+		match state:
+			State.MEMORIAL:
+				leave_memorial()
+			State.UNLOCK:
+				finish_unlock()
+			State.CHALLENGER:
+				finish_challenger()
+			State.REVEAL:
+				start_prologue()
+			State.DOOM:
+				begin_departure()
+			State.DEPARTURE:
+				start_awakening()
+			State.AWAKEN:
+				wake_in_courtyard()
+			State.FINAL_REVEAL:
+				enter_duel()
+			State.EPILOGUE:
+				show_victory()
+			State.TRANSITION:
+				enter_stage(next_stage)
+			State.RESURRECTING:
+				clock = resurrection_duration()
+			State.EXECUTE:
+				clock = timing("final_victory")
+	if state in [State.APPROACH,State.FIGHT]:
+		for ability: String in ["phantom","sever","echo"]:
+			if event.is_action_pressed(ability,false):
+				powers.use(self,ability)
+	if event.is_action_pressed("reversal", false) and reversal_ready():
+		start_resurrection(true)
+	if event.is_action_pressed("flash", false) and state == State.FLASH_OPEN:
+		start_execution()
+	if debug_enabled and event is InputEventKey and event.pressed and not event.echo:
+		debug_key(event.physical_keycode)
+
+func _physics_process(dt: float) -> void:
+	if paused:
+		return
+	clock += dt
+	parry_notice = maxf(0,parry_notice-dt)
+	if state in [State.PROLOGUE,State.APPROACH,State.FIGHT]:
+		update_health_cues(dt)
+	if state in [State.APPROACH,State.FIGHT] and stop_time <= 0.0:
+		powers.tick(self,dt)
+	match state:
+		State.TITLE:
+			hero.visual_time += dt
+			boss.visual_time += dt
+		State.APPROACH:
+			hero.read_controls(dt)
+			if stop_time > 0:
+				stop_time -= dt
+			else:
+				hero.simulate(dt)
+				if state == State.APPROACH:
+					journey.tick(dt)
+		State.UNLOCK:
+			tick_unlock(dt)
+		State.CHALLENGER:
+			hero.visual_time += dt
+			challenger.age += dt
+			challenger.queue_redraw()
+			if clock >= (1.35 if challenger_transform else 2.1):
+				finish_challenger()
+		State.MEMORIAL:
+			hero.visual_time += dt
+			if story.advance(dt):
+				leave_memorial()
+		State.REVEAL:
+			tick_reveal(dt)
+		State.FINAL_REVEAL:
+			if clock >= 5.2:
+				enter_duel()
+		State.EPILOGUE:
+			if story.advance(dt):
+				show_victory()
+		State.PROLOGUE, State.FIGHT:
+			tick_combat(dt)
+		State.DOOM:
+			boss.visual_time += dt
+			boss.phase = clampf(clock / timing("doom_wind"),0,1)
+			if clock >= timing("doom_wind"):
+				begin_departure()
+		State.DEPARTURE:
+			hero.phase = clampf(clock / .63,0,1)
+			hero.position.y = lerpf(fallen_from.y,572,smoothstep(0,.58,clock))
+			boss.visual_time += dt
+			var leave := clampf((clock - 1.65) / timing("walk_away"),0,1)
+			if leave > 0.0:
+				boss.pose = "walk"
+				boss.facing = 1.0
+				boss.position.x = lerpf(departure_origin,arena.area_width + 75.0,leave)
+			if leave >= 1.0:
+				boss.hide()
+				arena.gate_closed = smoothstep(0,.65,clock - 1.65 - timing("walk_away"))
+			if leave >= 1.0 and arena.gate_closed >= 1.0:
+				start_awakening()
+		State.AWAKEN:
+			tick_awakening(dt)
+		State.RESURRECTING:
+			tick_resurrection()
+		State.TRANSITION:
+			boss.phase = clampf(clock / timing("transition"),0,1)
+			hero.visual_time += dt
+			boss.visual_time += dt
+			if clock >= timing("transition"):
+				enter_stage(next_stage)
+		State.FLASH_PREP:
+			hero.visual_time += dt
+			boss.visual_time += dt * .23
+			hero.phase = clampf(clock / timing("final_anticipation"),0,1)
+			boss.phase = hero.phase * .87
+			hero_art.white_blade = hero.phase > .63
+			if clock >= timing("final_anticipation"):
+				transition_to(State.FLASH_OPEN)
+				sound.cue("tell")
+		State.FLASH_OPEN:
+			var p := clampf(clock / timing("final_window"),0,1)
+			boss.position.x = lerpf(798, 704, p)
+			boss.phase = .87 + .13 * p
+			hero.visual_time += dt
+			if p >= 1.0:
+				start_last_chance()
+		State.LAST_CHANCE:
+			tick_last_chance(dt)
+		State.EXECUTE:
+			tick_execution(dt)
+		State.VICTORY:
+			hero.visual_time += dt
+		State.DEFEAT:
+			hero.phase = clampf(clock / .63,0,1)
+			boss.visual_time += dt
+
+func tick_reveal(dt: float) -> void:
+	hero.visual_time += dt
+	boss.visual_time += dt
+	if clock < 1.25:
+		hero.position.x = lerpf(128,338,smoothstep(0,1.25,clock))
+		hero.pose = "run"
+	elif clock < 2.65:
+		hero.pose = "draw_blade"
+		hero.phase = smoothstep(1.3,2.65,clock)
+		boss.pose = "cleave_wind"
+		boss.phase = hero.phase
+	elif clock < 3.46:
+		hero.pose = "intro_slash"
+		hero.phase = smoothstep(2.65,3.37,clock)
+		boss.pose = "cleave"
+		boss.phase = hero.phase
+		var lunge := smoothstep(2.65,3.23,clock)
+		hero.position.x = lerpf(338,567,lunge)
+		boss.position.x = lerpf(964,724,lunge)
+		if clock-dt < 3.23 and clock >= 3.23:
+			camera.kick(7.0)
+			effects.arc(hero.position+Vector2(30,-44),1,115,Color("#fff1c9"))
+			pulse("white",Color("#ffe8c6"))
+			effects.burst(Vector2(628,503),Color("#ffe8a2"),40,295,181,.49)
+			sound.cue("parry")
+	else:
+		hero.pose = "knockback" if clock < 4.08 else "idle"
+		hero.phase = smoothstep(3.46,4.08,clock)
+		boss.pose = "cleave_recover"
+		boss.phase = smoothstep(3.45,4.55,clock)
+		hero.position.x = lerpf(567,286,smoothstep(3.46,4.10,clock))
+		boss.position.x = lerpf(724,964,smoothstep(3.46,4.24,clock))
+	if clock >= 5.4:
+		start_prologue()
+
+func tick_combat(dt: float) -> void:
+	hero.read_controls(dt)
+	if state == State.FIGHT:
+		fight_time += dt
+	if stop_time > 0:
+		stop_time -= dt
+		return
+	hero.simulate(dt)
+	if not is_fight():
+		return
+	boss.simulate(dt, hero.position)
+	if not is_fight():
+		return
+	separate_fighters(dt)
+	if state == State.PROLOGUE and (hero.health <= hero.maximum * .30 or boss.health <= boss.maximum * .76):
+		begin_doom()
+	resolve_boss_phase()
+
+func resolve_boss_phase() -> void:
+	if state != State.FIGHT:
+		return
+	var ratio: float = float(boss.health) / boss.maximum
+	if boss.stage == 1 and ratio <= float(boss.profile.get_value("phases", "two")):
+		start_transition(2)
+	elif boss.stage == 2 and ratio <= float(boss.profile.get_value("phases", "three")):
+		start_transition(3)
+	elif boss.stage == 3 and boss.health <= boss.execution_health():
+		begin_flash()
+
+func separate_fighters(dt: float) -> void:
+	if hero.mode == hero.Mode.DASH or (boss.attack == "rush" and boss.mode == boss.Mode.ACTIVE):
+		return
+	var x: float = hero.position.x - boss.position.x
+	if absf(x) >= 44.0 or hero.position.y + 2.0 < boss.position.y - boss.body_size.y:
+		return
+	var side: float = signf(x) if absf(x) > .5 else -boss.facing
+	var free := clampf(boss.position.x + side * 44.0, 96, 1184)
+	hero.position.x = move_toward(hero.position.x, free, dt * 480)
+	if absf(free - boss.position.x) < 40.0:
+		boss.position.x = move_toward(boss.position.x, free - side * 46.0, dt * 300)
+
+func floor_fighters() -> void:
+	hero.position.y = 572
+	boss.position.y = 572
+
+func tick_awakening(dt: float) -> void:
+	var flash_at := timing("awakening_flash")
+	var departure := timing("soul_departure")
+	if clock >= departure and clock - dt < departure:
+		sound.play_track("afterlife_" + realm(), "prologue")
+	if clock >= timing("soul_return") and clock - dt < timing("soul_return"):
+		sound.play_track("resurrection", "")
+	hero.phase = clampf(clock / .63,0,1)
+	boss.phase = clampf(clock / .95,0,1)
+	hero.position.y = lerpf(fallen_from.y, 572, smoothstep(0.0, .58, clock))
+	if clock >= flash_at:
+		if not awakening_played:
+			awakening_played = true
+			hero.awakened = true
+			hero.health = hero.maximum
+			pulse("crimson",Color("#ff5979"))
+			sound.cue("awakening")
+			effects.burst(hero.position + Vector2(0,-18),Color("#ff547b"),119,365,-20,1.47)
+			camera.kick(8.6)
+			desired_mood = 1
+		hero.pose = "resurrect"
+		hero.phase = smoothstep(flash_at, flash_at + 1.38, clock)
+	if clock >= timing("awakening_total"):
+		wake_in_courtyard()
+
+func tick_last_chance(dt: float) -> void:
+	fight_time += dt
+	hero.read_controls(dt)
+	hero.simulate(dt)
+	boss.phase = clampf(clock / .80,0,1)
+	if clock >= .8:
+		boss.pose = "slam"
+		boss.phase = smoothstep(.8, 1.2, clock)
+		var x: float = boss.position.x - (clock - .8) * 482
+		if clock - dt < .8:
+			sound.cue("slam")
+			camera.kick(4.5)
+			effects.burst(boss.position,Color("#be8df9"),25,175)
+		if not missed_wave and clock < timing("final_retry") - .35:
+			var wave := Strike.new(Rect2(x-27,545,54,32), mini(11,hero.health-1), -1,false, "last_chance",-1)
+			if wave.damage > 0 and not hero.defend(wave).is_empty():
+				missed_wave = true
+	if clock >= timing("final_retry"):
+		begin_flash()
+
+func tick_execution(dt: float) -> void:
+	var release := timing("final_freeze")
+	var slash := timing("final_slash")
+	var shatter := timing("final_shatter")
+	if clock >= release and not slash_played:
+		slash_played = true
+		sound.cue("final")
+		pulse("white", Color("#fff4e8"))
+	if clock >= release and clock < slash:
+		hero.pose = "final_dash"
+		hero.phase = clampf((clock - release) / (slash - release),0,1)
+		hero.position = execute_from.lerp(execute_to,hero.phase)
+		effects.ghost(hero.position, 1, Color("#fff2e3"),1.4)
+	elif clock >= slash:
+		hero.position = execute_to
+		hero.facing = -1
+		hero.pose = "final_strike" if clock < slash + .09 else "finish"
+		hero.phase = .75 if hero.pose == "final_strike" else smoothstep(shatter + .6, shatter + 2.6, clock)
+		boss.pose = "execution_hit"
+		boss.phase = 0.1
+	if clock >= shatter:
+		boss.pose = "dissolve"
+		boss.phase = clampf((clock - shatter) / .8,0,1)
+		if not shatter_played:
+			shatter_played = true
+			boss.health = 0
+			sound.cue("shatter")
+			camera.kick(timing("final_shake"))
+			pulse("dust",Color("#fbd3f4"))
+			effects.burst(boss.position + Vector2(0,-98), Color("#826797"), 161, 395, 72, 1.84)
+			effects.burst(boss.position + Vector2(0,-83), Color("#ffe2cf"), 90, 277, -142, 2.0)
+			desired_mood = 3
+		ghost_clock += dt
+		if ghost_clock >= .11:
+			ghost_clock = 0
+			effects.burst(boss.position + Vector2(sin(clock*28)*52,-90),Color("#ffd6b9"),3,72,-145,1.27)
+	if clock >= timing("final_victory"):
+		finish()
+
+func _process(dt: float) -> void:
+	ui.refresh(dt)
+	if paused:
+		return
+	elapsed += dt
+	effects.tick(dt)
+	sound.tick(dt)
+	var focus := 640.0
+	var zoom_level := 1.0
+	var shade := 0.0
+	match state:
+		State.AWAKEN:
+			focus = hero.position.x
+			zoom_level = 1.10
+			shade = .45 * smoothstep(.55, 2.3, clock) * (1.0-smoothstep(4.6,5.4,clock))
+		State.TRANSITION:
+			focus = boss.position.x
+			zoom_level = 1.0 + .095*sin(clampf(clock/timing("transition"),0,1)*PI)
+		State.FLASH_PREP, State.FLASH_OPEN:
+			zoom_level = timing("final_zoom")
+			shade = .68
+		State.EXECUTE:
+			focus = (hero.position.x + boss.position.x) * .5
+			zoom_level = lerpf(timing("final_zoom"),1.0,smoothstep(1.4,3.8,clock))
+			shade = .69 * (1.0-smoothstep(1.4,2.6,clock))
+		State.VICTORY:
+			focus = hero.position.x
+			zoom_level = 1.065
+	if state == State.CHALLENGER:
+		camera.focus_actor(dt,challenger.position+Vector2(0,-67),1.29)
+	elif state == State.UNLOCK:
+		camera.focus_actor(dt,hero.position+Vector2(0,-40),1.0+.72*sin(clampf(clock/1.75,0,1)*PI))
+	elif state in [State.APPROACH, State.MEMORIAL] or (state == State.RESURRECTING and resume_state == State.APPROACH):
+		camera.follow_path(dt, hero.position.x, arena.area_width)
+	elif state == State.REVEAL:
+		if clock >= 1.25 and clock < 1.97:
+			camera.focus_actor(dt,hero.position+Vector2(17,-76),2.12)
+		elif clock >= 1.97 and clock < 2.65:
+			camera.focus_actor(dt,boss.position+Vector2(-42,-66),1.58)
+		else:
+			camera.update_frame(dt,hero.position,boss.position,640.0,1.0,0.0)
+	else:
+		camera.update_frame(dt, hero.position, boss.position, focus, zoom_level, hero.velocity.x * .12)
+	hero_art.blessing = maxf(0,hero_art.blessing-dt)
+	arena.mood = move_toward(arena.mood, desired_mood, dt * .78)
+	arena.shade = move_toward(arena.shade, shade, dt * 1.42)
+	arena.time += dt * (.28 if state in [State.FLASH_PREP, State.FLASH_OPEN] else 1.0)
+	arena.parallax = camera.position.x - 640.0
+	arena.queue_redraw()
+	hero_art.redraw()
+	boss_art.redraw()
+	if is_fight():
+		ghost_clock += dt
+		if ghost_clock >= .045:
+			ghost_clock = 0
+			if hero.mode == hero.Mode.DASH:
+				effects.ghost(hero.position, hero.facing, hero_art.palette.awakened if hero.awakened else Color("#9faccd"))
+			if boss.mode == boss.Mode.ACTIVE and boss.attack == "rush":
+				effects.ghost(boss.position, boss.facing, Color("#9669ed"), 2.2)
+			if boss.stage >= 2:
+				effects.burst(boss.position + Vector2(sin(elapsed*15)*31,-96),Color("#b38eec"),2,56,-85,.68)
+
+func hero_strike(strike) -> void:
+	effects.show_box(strike.box)
+	powers.capture_echo(hero,strike)
+	if state == State.APPROACH:
+		journey.strike_enemies(strike)
+	elif is_fight() and boss.receive(strike):
+		land_player_hit(boss.position,strike)
+		resolve_boss_phase()
+
+func land_player_hit(at: Vector2,strike) -> void:
+	if strike.source != "reversal":
+		hero.energy += 10.0 if hero.resurrection_level >= 4 else 8.0
+		stop_time = .045 if strike.damage > 29 else .030
+	var color := Color("#ffa2b0") if hero.awakened else Color("#d0c0ee")
+	effects.burst(at + Vector2(-strike.direction * 19,-58),color,20,235)
+	sound.cue("hit")
+
+func reward_parry(perfect: bool = false) -> void:
+	parries += 1
+	if perfect:
+		parry_notice = .75
+	stop_time = .10 if perfect else .07
+	camera.kick(4)
+	pulse("dust",Color("#ffd092"))
+
+func boss_strike(strike) -> void:
+	if not is_fight() or consumed_strike == strike.id:
+		return
+	effects.show_box(strike.box)
+	if state == State.PROLOGUE:
+		strike.damage = mini(strike.damage, hero.health - 1)
+	var result: String = hero.defend(strike) if strike.damage > 0 else ""
+	if result.is_empty():
+		return
+	consumed_strike = strike.id
+	if result in ["parry","perfect_parry"]:
+		var perfect := result == "perfect_parry"
+		reward_parry(perfect)
+		boss.repelled(hero.progression.critical_multiplier if perfect else 1.0)
+		resolve_boss_phase()
+
+func hero_cue(name: String, at: Vector2) -> void:
+	match name:
+		"sever":
+			powers.launch_sever(hero)
+			sound.cue("swing")
+			effects.arc(at,hero.facing,86,Powers.COLORS.sever)
+		"phantom":
+			sound.cue("dash")
+			effects.ghost(at,hero.facing,Powers.COLORS.phantom,1.2)
+			effects.burst(at+Vector2(0,-30),Powers.COLORS.phantom,24,135,28,.44)
+		"swing":
+			sound.cue("swing")
+			var color: Color = hero_art.palette.awakened if hero.awakened else Color("#b4bbd6")
+			if hero.resurrection_level >= 5:
+				effects.burst(at,Color("#ffd3c9"),10,122,-35,.42)
+			var attack: Dictionary = hero.strike_data
+			effects.arc(at,hero.facing,float(attack.reach)*(.69+.018*hero.resurrection_level),color,attack.name == "light_2",hero.awakened)
+		"dash":
+			sound.cue("dash")
+			effects.ghost(at,hero.facing,Color("#db81a0"))
+			effects.burst(at,Color("#8d748b"),11,145,70)
+		"parry":
+			sound.cue("parry")
+			effects.burst(at,Color("#ffdcab"),43,275,290,.66)
+			effects.arc(at,hero.facing,53,Color("#ffe5b3"),false,hero.awakened)
+		"guard":
+			effects.burst(at,Color("#efcaa7"),8,120,213,.24)
+		"hurt":
+			sound.cue("hit")
+			effects.burst(at,Color("#e46e91"),17,190)
+			camera.kick(2.4)
+		"jump","land":
+			effects.burst(at+Vector2(0,-3),Color("#8b738f"),8 if name=="jump" else 14,102,92,.33)
+
+func boss_warning(_name: String) -> void:
+	sound.cue("tell")
+
+func boss_impact(name: String, at: Vector2) -> void:
+	var color := Color("#b68cf3")
+	if name in ["throne", "cleave", "rush", "teleport"]:
+		if boss_art.imported == null or not boss_art.imported.sprite_frames.has_animation(name):
+			effects.arc(at+Vector2(22*boss.facing,-83),boss.facing,141 if name == "throne" else 124,color,boss.emitted==1)
+		else:
+			effects.burst(at+Vector2(100*boss.facing,-81),color,11,162,55,.3)
+		sound.cue("swing")
+		camera.kick(3.7 if name == "throne" else 2.6)
+	else:
+		sound.cue("slam")
+		camera.kick(5.4 if name=="slam" else 3.1)
+		if name=="ruin":
+			for x: float in boss.marks:
+				effects.burst(Vector2(x,565),color,13,212,138,.52)
+		else:
+			effects.burst(at-Vector2(0,6),color,37,172,129,.66)
+
+func debug_key(key: int) -> void:
+	match key:
+		KEY_F1:
+			if state in [State.TITLE, State.REVEAL, State.APPROACH, State.MEMORIAL]:
+				ui.show_panel("")
+				start_prologue()
+		KEY_F2:
+			ui.show_panel("")
+			arena.set_area("courtyard")
+			boss.visible = true
+			hero.position = Vector2(436,572)
+			boss.position = Vector2(797,572)
+			begin_departure()
+		KEY_F3, KEY_F4:
+			ui.show_panel("")
+			arena.set_area("courtyard")
+			boss.visible = true
+			hero.position = Vector2(436,572)
+			boss.position = Vector2(797,572)
+			journey.clear_enemies()
+			arena.set_area("throne")
+			journey.save_checkpoint("throne", 270)
+			hero.awakened = true
+			hero.health = hero.maximum
+			resurrection_charges = max_resurrections
+			var chosen := 2 if key == KEY_F3 else 3
+			boss.health = roundi(boss.maximum * (.64 if chosen == 2 else .24))
+			start_transition(chosen)
+		KEY_F5:
+			hero.energy = 100
+		KEY_F6:
+			ui.show_panel("")
+			arena.set_area("courtyard")
+			boss.visible = true
+			hero.awakened = true
+			hero.health = hero.maximum
+			journey.clear_enemies()
+			arena.set_area("throne")
+			journey.save_checkpoint("throne",270)
+			boss.stage = 3
+			boss.health = roundi(boss.maximum * .05)
+			begin_flash()
+		KEY_F7:
+			hero.health = hero.maximum if hero.health == 1 else 1
+		KEY_F8:
+			boss.health = boss.maximum if boss.health == 1 else 1
+		KEY_F9:
+			effects.debug = not effects.debug
+

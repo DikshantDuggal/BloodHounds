@@ -1,0 +1,9 @@
+# Godot 4+ cache & export artifacts
+.godot/
+*/.godot/
+**/.godot/
+
+# Temporary files
+*.tmp
+*/*.tmp
+**/*.tmp

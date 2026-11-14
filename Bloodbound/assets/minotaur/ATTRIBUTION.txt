@@ -1,0 +1,7 @@
+Boss: Minotaur by chierit
+https://chierit.itch.io/boss-minotaur
+Licensed under Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+
+Bloodbound uses the original sheet from mino_v1.1_free. The game slices,
+scales, mirrors, tints, and retimes its frames for The Hollow Sovereign.
