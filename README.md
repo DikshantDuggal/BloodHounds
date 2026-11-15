@@ -306,7 +306,12 @@ godot --headless --path Bloodbound --fixed-fps 60 --script res://tests/smoke.gd 
 - **Godot Engine**: Copyright (c) 2014-present Godot Engine contributors; released under the [MIT License](licenses/Godot-LICENSE.txt).
 - **Minotaur Boss Atlas**: Created by **chierit** ([Boss: Minotaur on itch.io](https://chierit.itch.io/boss-minotaur)); licensed under [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). See `assets/minotaur/ATTRIBUTION.txt`.
 - **Honjō Masamune Lore**: Inspired by legendary Japanese swordsmith **Gorō Nyūdō Masamune** and the celebrated historic blade passed through the Tokugawa shogunate.
+- all of the game assets were taken from https://craftpix.net/ , https://itch.io/
 
 ---
 
 *“I lowered Honjō Masamune. The blade was finally still.”*
+
+
+
+
