@@ -13,6 +13,8 @@ var buttons: Array[Button] = []
 var display_font: Font
 var text_font: Font
 var menu_name := ""
+var story_movie := VideoStreamPlayer.new()
+var story_movie_backdrop := ColorRect.new()
 var hud_alpha := 0.0
 var shown_health := 1.0
 var shown_boss := 1.0
@@ -26,6 +28,18 @@ func setup(director) -> void:
 	display_font.font_names = PackedStringArray(["Palatino Linotype", "Georgia", "Times New Roman"])
 	text_font = SystemFont.new()
 	text_font.font_names = PackedStringArray(["Segoe UI", "Arial"])
+	story_movie_backdrop.color = Color("#050409")
+	story_movie_backdrop.size = Vector2(1280,720)
+	story_movie_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	story_movie_backdrop.hide()
+	add_child(story_movie_backdrop)
+	story_movie.expand = true
+	story_movie.size = Vector2(1280,720)
+	story_movie.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	story_movie.bus = &"Music"
+	story_movie.stream = game.profile.optional("visual","story_video","VideoStream") as VideoStream
+	story_movie_backdrop.add_child(story_movie)
+	story_movie.finished.connect(stop_story_movie)
 	canvas = Control.new()
 	canvas.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -35,6 +49,17 @@ func setup(director) -> void:
 	menu = VBoxContainer.new()
 	menu.add_theme_constant_override("separation", 9)
 	canvas.add_child(menu)
+
+func play_story_movie() -> bool:
+	if story_movie.stream == null:
+		return false
+	story_movie_backdrop.show()
+	story_movie.play()
+	return true
+
+func stop_story_movie() -> void:
+	story_movie.stop()
+	story_movie_backdrop.hide()
 
 func refresh(dt: float) -> void:
 	hud_alpha = move_toward(hud_alpha, 1.0 if game.shows_hud() else 0.0, dt * 5.2)
@@ -63,29 +88,34 @@ func show_panel(name: String) -> void:
 		menu.remove_child(child)
 		child.queue_free()
 	buttons.clear()
-	menu.position = Vector2(105, 410) if name == "title" else Vector2(496, 388)
+	menu.position = Vector2(105, 415) if name == "title" else Vector2(496, 388)
 	match name:
 		"title":
-			add_button("BEGIN", "begin")
+			add_button("NEW GAME", "begin")
 			add_button("CONTROLS", "controls")
+			add_button("SETTINGS", "audio")
 			add_button("QUIT", "quit")
 		"controls":
 			menu.position.y = 559
 			add_button("RETURN TO TITLE", "title")
 		"pause":
 			add_button("RESUME", "resume")
-			add_button("RETRY", "retry")
+			if not game.curse_active:
+				add_button("RETRY", "retry")
 			add_button("AUDIO SETTINGS", "audio")
 			add_button("RETURN TO TITLE", "title")
 		"audio":
 			menu.position.y = 343
 			var music_slider := add_volume_slider("Music",game.sound.music_volume,game.sound.set_music_volume)
 			add_volume_slider("Effects",game.sound.effects_volume,game.sound.set_effects_volume)
-			add_button("BACK", "pause")
+			add_button("BACK", "title" if game.state == game.State.TITLE else "pause")
 			music_slider.grab_focus()
 			return
-		"defeat", "victory":
+		"defeat":
 			add_button("RESTART BATTLE", "retry")
+			add_button("RETURN TO TITLE", "title")
+		"victory":
+			menu.position.y = 553
 			add_button("RETURN TO TITLE", "title")
 	if not buttons.is_empty():
 		buttons[0].grab_focus()
@@ -121,6 +151,9 @@ func add_button(label: String, id: String) -> void:
 	control.add_theme_stylebox_override("pressed", style(Color("#622a44"), HOT))
 	control.add_theme_stylebox_override("focus", style(Color(0,0,0,0), HOT))
 	control.pressed.connect(func() -> void: requested.emit(id))
+	control.mouse_entered.connect(func() -> void:
+		control.grab_focus()
+		game.sound.cue("confirm"))
 	menu.add_child(control)
 	buttons.append(control)
 
@@ -146,14 +179,16 @@ func paint() -> void:
 	if state == s.EPILOGUE:
 		story_panel()
 	elif state == s.MEMORIAL:
-		cinematic_label("THE SOVEREIGN FALLS","“The path to the fortress is yours.”",LIGHT,smoothstep(0.0,.5,t))
+		cinematic_label("THE SKULL GUARDIAN FALLS",game.profile.get_value("story","oda_legend"),LIGHT,smoothstep(0.0,.5,t))
 		center("ENTER  Skip",681,13,MUTED)
 	elif state == s.APPROACH:
 		approach()
 	elif state == s.VILLAGE:
 		center(game.journey.ACTS[0],107,19,LIGHT,true)
+		center("SHINEGEN ODA",138,15,Color(LIGHT,.88))
 		center("Follow the ruined village road to the courtyard",619,14,LIGHT)
 		center("A / D  Move     SPACE  Jump     J  Attack     SHIFT  Dash     L  Parry",648,14,MUTED)
+		panel(Rect2(0,0,1280,720),Color("#100c17",1.0-smoothstep(0,1.04,t)))
 	elif state == s.REVEAL:
 		var fade := 1.0 - smoothstep(0.0, 1.4, t)
 		if fade > 0:
@@ -171,16 +206,19 @@ func paint() -> void:
 		center("ENTER  Skip", 681, 13, MUTED)
 	elif state == s.DEPARTURE:
 		letterbox(.85)
-		center("“%s”" % game.profile.get_value("story","departure"),306,29,LIGHT,true)
+		center("“%s”" % game.profile.get_value("story","departure"),306,29,Color(LIGHT,smoothstep(.3,.7,t)*(1.0-smoothstep(2.6,3.5,t))),true)
 		center("ENTER  Skip",675,13,MUTED)
 	elif state == s.FINAL_REVEAL:
 		letterbox(.85)
 		center(game.profile.get_value("story","arena"),224,27,LIGHT,true)
-		var line_text: String = game.profile.get_value("story","reunion" if t < 2.6 else "reply")
+		var line_key := "night_warning" if t < 1.6 else ("reunion" if t < 3.3 else "reply")
+		var line_text: String = game.profile.get_value("story",line_key)
 		center("“%s”" % line_text,330,29,LIGHT,true)
 		center("ENTER  Skip",675,13,MUTED)
 	elif state == s.DOOM:
-		cinematic_label(game.profile.get_value("story", "doom"), "“Kneel, last heir.”", HOT, .9)
+		letterbox(.87)
+		var opacity := 1.0-smoothstep(.65,game.timing("doom_wind"),t)
+		center(game.profile.get_value("story","doom"),218,29,Color(HOT,opacity),true)
 		center("ENTER  Skip", 675, 13, MUTED)
 	elif state == s.AWAKEN:
 		awakening(t)
@@ -189,19 +227,21 @@ func paint() -> void:
 		if game.reversal and progress < .73:
 			panel(Rect2(0,0,1280,720),Color("#f9efd7",.34*sin(progress*PI)))
 			cinematic_label("DEATH REVERSAL","",HOT,sin(progress*PI))
-		if not game.reversal and progress >= .28 and progress < .62:
-			var opacity := smoothstep(.28,.34,progress) * (1.0-smoothstep(.53,.62,progress))
-			realm_panel((progress-.28)/.34,opacity)
+		if progress >= game.BETWEEN_OPEN and progress < game.BETWEEN_CLOSE:
+			var between_progress: float = inverse_lerp(game.BETWEEN_OPEN,game.BETWEEN_CLOSE,progress)
+			draw_between(between_progress,false)
 	elif state == s.CHALLENGER:
-		cinematic_label("THE HOLLOW SOVEREIGN",game.profile.get_value("story","sovereign_rematch"),VIOLET,smoothstep(0,.32,t))
+		cinematic_label("THE SKULL GUARDIAN",game.profile.get_value("story","sovereign_rematch"),VIOLET,smoothstep(0,.32,t))
 		center("ENTER  Skip",675,13,MUTED)
 	elif state == s.UNLOCK:
 		var ability: String = game.unlock_ability
 		var title_text: String = game.Powers.LABELS[ability].to_upper()
 		var key: String = game.Powers.KEYS.get(ability,"")
 		var tint: Color = game.Powers.COLORS[ability]
-		var detail := "MAX HP  %d" % game.hero.maximum if key.is_empty() else "%s  ·  MAX HP  %d" % [key,game.hero.maximum]
+		var hint: String = {"resurrection":"Return from death while charges remain","phantom":"E  ·  Dash through the ancestral ward","sever":"U  ·  Send a slash toward the shrine seal","reversal":"Q  ·  Spend one charge and full energy to heal and strike"}.get(ability,key)
+		var detail := "%s   ·   MAX HP  %d" % [hint,game.hero.maximum]
 		cinematic_label(title_text + " UNLOCKED",detail,tint,smoothstep(.16,.55,t))
+		diamond(Vector2(640,201),6,Color(tint,smoothstep(.16,.55,t)))
 		center("ENTER  Skip",675,13,MUTED)
 	elif state == s.TRANSITION:
 		var opacity := smoothstep(.14,.48,t) * (1.0 - smoothstep(2.18,2.7,t))
@@ -214,7 +254,7 @@ func paint() -> void:
 		if progress < .51:
 			center("“%s”" % game.profile.get_value("story","final_voice"),614,22,LIGHT,true)
 		else:
-			cinematic_label("ONE FLASH","Wait for the opening",HOT,smoothstep(.51,.71,progress))
+			cinematic_label("ONE FLASH — THE LAST OATH","Wait for the opening",HOT,smoothstep(.51,.71,progress))
 	elif state == s.FLASH_OPEN:
 		letterbox(.75)
 		center("STRIKE NOW", 319, 16, HOT)
@@ -245,12 +285,12 @@ func title() -> void:
 	line(Vector2(104,195),Vector2(168,195),HOT,1)
 	diamond(Vector2(178,195), 4, HOT)
 	write(Vector2(203,199), game.profile.get_value("story", "arena"), 14, MUTED)
-	write(Vector2(99,302), "BLOODBOUND", 94, LIGHT, true)
-	write(Vector2(105,354), "T H E   L A S T   O A T H", 25, HOT, true)
+	var reveal := smoothstep(.02,.75,game.clock) if menu_name == "title" else 1.0
+	write(Vector2(99,302+floorf((1.0-reveal)*9)), "BLOODBOUND", 94, Color(LIGHT,reveal), true)
+	write(Vector2(105,354), "T H E   L A S T   O A T H", 25, Color(HOT,reveal), true)
 	line(Vector2(104,381), Vector2(529,381), Color(HOT,.33), 1.0)
 	write(Vector2(104,657), "ENTER  Select     ↑ / ↓  Navigate", 14, MUTED)
-	var boss_name: String = game.boss.profile.get_value("identity", "name", "THE HOLLOW SOVEREIGN")
-	write(Vector2(871,650), boss_name, 16, MUTED, true)
+	write(Vector2(871,650), "SHINEGEN ODA", 16, MUTED, true)
 	write(Vector2(871,674), "ART  chierit · CraftPix · Firepious · NYKNCK", 12, MUTED)
 
 func hud(a: float) -> void:
@@ -258,7 +298,7 @@ func hud(a: float) -> void:
 	var stats = h.progression
 	var b = game.boss
 	var stage: int = b.stage
-	var top_name: String = h.profile.get_value("identity", "name", "Ilyen")
+	var top_name: String = h.profile.get_value("identity", "name", "Shinegen Oda")
 	var sword_name: String = h.profile.get_value("identity", "weapon", "")
 	write(Vector2(76,49), "%s  ·  %s" % [top_name.to_upper(), sword_name], 16, Color(LIGHT, a))
 	gauge(Vector2(76, 61), Vector2(276, 10), shown_health, Color("#f3778b"), Color("#932b57"), a)
@@ -269,13 +309,15 @@ func hud(a: float) -> void:
 	var parry_color := MUTED if h.parry_cd > 0 else LIGHT
 	write(Vector2(1058,58), "SHIFT  Dash", 13, Color(dash_color, a * (.42 if h.dash_cd > 0 else .93)))
 	write(Vector2(1152,58), "L  Parry", 13, Color(parry_color, a * (.42 if h.parry_cd > 0 else .93)))
+	if game.is_fight():
+		write(Vector2(882,93),game.journey.ACTS[game.journey.act()],11,Color(LIGHT,a*.82))
 	if stats.has("resurrection"):
 		for i in stats.charge_limit:
 			sword_sigil(Vector2(80+i*20,128),i < stats.charges,a)
 		write(Vector2(157,133),"SOUL LV. %d" % h.resurrection_level,12,Color(LIGHT,a))
 	write(Vector2(252,107),"LEVEL %d" % stats.level,11,Color(LIGHT,a))
 	var index := 0
-	for ability: String in ["phantom","sever","reversal","echo","flash"]:
+	for ability: String in ["phantom","sever","reversal"]:
 		if stats.has(ability):
 			power_icon(Vector2(76+index*48,151),ability,a)
 			index += 1
@@ -294,9 +336,9 @@ func hud(a: float) -> void:
 			center(game.journey.tell,137,17,Color(LIGHT,a),true)
 			center(game.journey.tell_cue,158,12,Color(LIGHT,a))
 		return
-	var boss_name: String = b.profile.get_value("identity", "name", "THE HOLLOW SOVEREIGN")
+	var boss_name: String = b.profile.get_value("identity", "name", "THE DEMON OVERLORD")
 	center(boss_name, 632, 22, Color(LIGHT,a), true)
-	var phase_name: String = "SHRINE REMATCH" if game.side_encounter() else ["PROLOGUE","THE FURNACE","INFERNAL SEALS","THE FINAL OATH"][stage]
+	var phase_name: String = "SHRINE TRIAL" if game.side_encounter() else ["PROLOGUE","THE FURNACE","INFERNAL SEALS","THE FINAL OATH"][stage]
 	center(phase_name, 653, 10, Color(VIOLET,a*.92))
 	gauge(Vector2(327,666),Vector2(626,9),shown_boss, Color("#ba89e0"), Color("#6d487e"), a)
 	write(Vector2(967,676),"%d / %d" % [b.health,b.maximum],13,Color(LIGHT,a))
@@ -351,11 +393,14 @@ func draw_health_warning() -> void:
 
 func story_panel() -> void:
 	var shot: Dictionary = game.story.presentation()
+	var t: float = game.clock
 	if game.story.illustrations.get(shot.art):
 		game.story.draw_plate(canvas,shot.art,shot.progress)
+	if t >= game.ENDING_BLACK-.45:
+		panel(Rect2(0,0,1280,720),Color("#0a0810",smoothstep(game.ENDING_BLACK-.45,game.ENDING_BLACK,t)))
 	letterbox(.93)
 	line(Vector2(400,641),Vector2(880,641),Color(HOT,.38),1)
-	center(shot.line,618,24,Color(LIGHT,shot.opacity),true)
+	center(shot.line,375 if t >= game.ENDING_BLACK else 618,24,Color(LIGHT,shot.opacity),true)
 	center("ENTER  Skip",678,13,MUTED)
 
 func approach() -> void:
@@ -369,7 +414,14 @@ func approach() -> void:
 	if route.tell_time > 0:
 		return
 	if game.arena.area == "courtyard":
-		center("A / D  Move     SPACE  Jump     →  Old Stone Bridge",638,15,LIGHT)
+		var hint := "A / D  Move     SPACE  Jump     →  Old Stone Bridge"
+		if route.show_phantom_hint():
+			hint = "E  Phantom Step through the ward   ·   Hold →"
+		center(hint,638,15,LIGHT)
+	elif game.arena.area == "shrine" and game.hero.position.x > 345.0 and game.hero.position.x < 660.0:
+		center(game.profile.get_value("story","shrine_inscription"),620,19,LIGHT,true)
+	elif game.arena.show_sever_target and game.hero.position.x > 1270.0:
+		center("U  Aim Soul Sever at the shrine seal",638,15,LIGHT)
 	elif game.hero.position.x > game.arena.exit_x - 260.0:
 		center("→  Continue" if route.enemy_count()==0 else "Defeat the remaining enemies to open the gate",630,15,LIGHT)
 	elif jump_prompt():
@@ -383,11 +435,44 @@ func jump_prompt() -> bool:
 			return true
 	return false
 
-func realm_panel(progress: float, opacity: float) -> void:
-	letterbox(opacity*.85)
-	var tint := HOT if game.realm() == "abyss" else Color("#eedebd")
-	center("THE ABYSS" if game.realm() == "abyss" else "THE ANCESTRAL VEIL",186,22,Color(tint,opacity),true)
-	line(Vector2(510,199),Vector2(770,199),Color(tint,opacity*sin(PI*progress)*.65),1)
+func draw_between(p: float, first: bool) -> void:
+	var alpha := smoothstep(0.0,.14,p)*(1.0-smoothstep(.84,1.0,p))
+	var darkness := 1.0-smoothstep(.84,1.0,p) if first else alpha
+	panel(Rect2(0,0,1280,720),Color("#050409",darkness))
+	for i in 62:
+		var mote := Vector2(fposmod(i*173.77+p*(12+i%4*8),1280),fposmod(i*i*31.37-p*31,720)).round()
+		panel(Rect2(mote,Vector2.ONE*(1+i%3)),Color("#e9e2eb",alpha*(.12+i%5*.06)))
+	var retreat := smoothstep(.10,.52,p)
+	draw_distant_gate(Vector2(640-lerpf(238,146,retreat),lerpf(341,273,retreat)),
+		lerpf(104,43,retreat),Color("#f0c17d",alpha))
+	draw_distant_gate(Vector2(640+lerpf(254,163,retreat),lerpf(346,282,retreat)),
+		lerpf(90,36,retreat),Color("#c84567",alpha*.72))
+	var bound := smoothstep(.39,.59,p) if first else smoothstep(.1,.24,p)
+	var pull := smoothstep(.72,1.0,p) if first else smoothstep(.46,1.0,p)
+	var reach := smoothstep(.16,.48,p) if first else 0.0
+	var spirit: Vector2 = Vector2(639-91*reach,455-77*reach+sin(p*39.0)*4.0*reach).lerp(Vector2(953,502),pull)
+	var grip := Vector2(953,502)
+	var blade: Texture2D = game.hero_art.weapon_sprite.texture
+	if blade:
+		canvas.draw_texture_rect(blade,Rect2(grip-game.hero_art.weapon_grip*1.3,blade.get_size()*1.3),
+			false,Color(Color.WHITE,alpha*bound))
+	game.effects.draw_thread(canvas,spirit,grip,p*5.0,alpha*bound)
+	game.effects.draw_spirit(canvas,spirit,1.60,alpha*(1.0-pull*.85),0.0)
+	if first:
+		center("THE BETWEEN",130,24,Color(LIGHT,alpha*.85),true)
+		var denial := smoothstep(.24,.32,p)*(1.0-smoothstep(.51,.60,p))
+		var oath := smoothstep(.60,.66,p)*(1.0-smoothstep(.84,.93,p))
+		center(game.profile.get_value("story","between_denial"),592,27,Color(LIGHT,denial*alpha),true)
+		center(game.profile.get_value("story","between_oath"),592,27,Color(LIGHT,oath*alpha),true)
+
+func draw_distant_gate(at: Vector2, radius: float, tint: Color) -> void:
+	for ring in 4:
+		canvas.draw_circle(at-Vector2(0,radius*.42),radius*(.55+ring*.19),Color(tint,tint.a*.08))
+	canvas.draw_arc(at,radius*.48,PI,TAU,28,Color(tint,tint.a*.64),2.0,true)
+	for direction in [-1,1]:
+		var post := at+Vector2(direction*radius*.48,0)
+		line(post,post+Vector2(0,radius*.57),Color(tint,tint.a*.57),2.0)
+	line(at+Vector2(-radius*.6,radius*.57),at+Vector2(radius*.6,radius*.57),Color(tint,tint.a*.29),1.0)
 
 func sword_sigil(at: Vector2, charged: bool, opacity: float) -> void:
 	var color := Color(HOT if charged else MUTED,opacity*(.95 if charged else .30))
@@ -398,18 +483,21 @@ func sword_sigil(at: Vector2, charged: bool, opacity: float) -> void:
 	diamond(at+Vector2(0,-4),2.1,color)
 
 func awakening(t: float) -> void:
+	if story_movie_backdrop.visible:
+		return
 	var flash_at: float = game.timing("awakening_flash")
 	letterbox(.88)
 	var depart: float = game.timing("soul_departure")
 	var arrive: float = game.timing("soul_return")
-	if t >= depart and t < arrive:
-		var p := clampf((t-depart)/(arrive-depart),0,1)
-		realm_panel(p,smoothstep(0.0,.12,p)*(1.0-smoothstep(.87,1.0,p)))
-		var a := smoothstep(.10,.30,p) * (1.0-smoothstep(.77,.94,p))
-		center("“%s”" % game.profile.get_value("story","afterlife_voice"), 597, 30, Color(LIGHT,a), true)
+	if t < depart:
+		panel(Rect2(0,0,1280,720),Color("#050409",smoothstep(0,.55,t)))
+		var opacity := smoothstep(.30,.73,t)*(1.0-smoothstep(1.63,depart,t))
+		center(game.profile.get_value("story","first_death_line"),364,32,Color(LIGHT,opacity),true)
+	elif t < arrive:
+		draw_between(inverse_lerp(depart,arrive,t),true)
 	elif t >= flash_at:
 		var awakened := t > flash_at + 1.14
-		var heading := "ANCESTRAL RESURRECTION AWAKENED" if awakened else "DEATH HAS REJECTED YOU"
+		var heading := "ANCESTRAL RESURRECTION AWAKENED" if awakened else "THE THREAD PULLS YOU BACK"
 		var dialogue := "“%s”" % game.profile.get_value("story","awakening_reaction") if awakened else ""
 		cinematic_label(heading, dialogue, HOT, smoothstep(flash_at,flash_at+.5,t))
 	center("ENTER  Skip", 675, 13, MUTED)
@@ -439,7 +527,7 @@ func modal() -> void:
 			center("CONTROLS", 199, 32, LIGHT, true)
 			var entries := [["A / D   or   ← / →","Move"], ["SPACE   or   ↑","Jump"], ["J","Light attack / combo"],
 				["K   Hold / release","Heavy / charged attack"], ["SHIFT","Dodge / dash"], ["L","Parry"],
-				["E / U","Phantom Step / Soul Sever"], ["Q / I","Death Reversal / Ancestral Echo"], ["F","One Flash"], ["ESC   /   R","Pause / retry after defeat"]]
+				["E / U","Phantom Step / Soul Sever"], ["Q","Death Reversal"], ["F","One Flash"], ["ESC   /   R","Pause / retry after defeat"]]
 			for i in entries.size():
 				var y := 227.0 + i * 30
 				write(Vector2(420,y), entries[i][0], 13, HOT)
@@ -453,10 +541,13 @@ func modal() -> void:
 			center("THE HEIR HAS FALLEN", 287, 28, LIGHT, true)
 			center("R  Return to the last checkpoint", 328, 14, MUTED)
 		"victory":
-			center("OATH FULFILLED", 277, 33, LIGHT, true)
-			center(game.profile.get_value("story", "arena").capitalize(), 317, 16, MUTED, true)
+			center("ANOTHER AWAITS", 252, 33, LIGHT, true)
+			center("BLOODBOUND   ·   THE LAST OATH", 312, 16, LIGHT, true)
+			center("ART   chierit · CraftPix · Firepious · NYKNCK", 393, 15, MUTED)
+			center("FINAL BOSS ART   Demon Overlord 2D Pixel Art", 424, 14, MUTED)
+			center("AUDIO   DavidDumaisAudio · Dragon Studio · Pixabay contributors",455,12,MUTED)
 			center("PARRIES   %02d     •     TIME   %02d:%02d" % [game.parries, floori(game.fight_time / 60), int(game.fight_time) % 60],
-				350, 13, HOT)
+				505, 13, HOT)
 
 func gauge(at: Vector2, size: Vector2, fraction: float, bright: Color, dark: Color, opacity: float) -> void:
 	panel(Rect2(at - Vector2.ONE * 2,size + Vector2.ONE * 4), Color("#17101c",opacity*.94))

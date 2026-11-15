@@ -4,7 +4,7 @@ const WORLD = preload("res://scenes/Throne.tscn")
 const BLADE = preload("res://assets/last_oath/heir/ketsumei.png")
 const POSES := ["idle","run","jump_start","rise","fall","land","dash","dodge","parry","parry_success",
 	"draw_blade","light_1","light_2","light_3","dash_slash","heavy","air","sever","resurrect","reversal",
-	"final_prepare","final_dash","final_strike","finish","victory"]
+	"death","fatal_recoil","final_prepare","final_dash","final_strike","finish","victory"]
 
 var game
 var failures := 0
@@ -36,6 +36,10 @@ func run() -> void:
 	var art = game.hero_art
 	var blade: Sprite2D = art.weapon_sprite
 	var pixels := BLADE.get_image()
+	var idle: Texture2D = art.imported.sprite_frames.get_frame_texture("idle",0)
+	var idle_height: float = idle.get_image().get_used_rect().size.y * art.imported.scale.y
+	var ratio: float = pixels.get_used_rect().size.y * art.weapon_scale / idle_height
+	verify(ratio >= .70 and ratio <= .85,"Weapon length is outside 70–85% of the hero's idle silhouette")
 	verify(pixels.get_size() == Vector2i(17,60) and pixels.get_pixel(0,0).a == 0,"Wrong sword dimensions or background")
 	for y in [49,52,55]:
 		for x in [7,9]:

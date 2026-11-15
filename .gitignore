@@ -7,3 +7,6 @@
 *.tmp
 */*.tmp
 **/*.tmp
+
+# Standalone runner directory
+Bloodbound-Play/

@@ -14,7 +14,7 @@ The game uses a 1280 × 720 canvas. The daytime 256 × 128 scenery is drawn at 5
 
 Hero keys include `idle`, `run`, `jump_start`, `rise`, `fall`, `land`, `dash`, `dodge`, `light_1`–`light_3`, `air`, `charge`, `heavy`, `parry`, `parry_success`, `hurt`, `knockback`, `death`, `resurrect`, `final_prepare`, `final_dash`, `final_strike`, `finish`, and `victory`. For the boss, use `cleave`, `slam`, `rush`, `teleport`, `ruin`, and `throne` for active attacks, and append `_wind` or `_recover` for either side of the active window. Other boss keys include `idle`, `walk`, `intro`, `turn`, `doom`, `doom_recover`, `stagger`, `crown_break`, `desperate`, `final_attack`, `execution_hit`, and `dissolve`.
 
-A missing SpriteFrames resource, missing state mapping, or empty animation falls back to that actor's procedural body. Leave the frame path empty to preview it. Keep Ilyen's body frames free of baked weapon, scabbard, and sword glow pixels.
+A missing SpriteFrames resource, missing state mapping, or empty animation falls back to that actor's procedural body. Leave the frame path empty to preview it. Keep Shinegen's body frames free of baked weapon, scabbard, and sword glow pixels. The morning defeat uses the Demon Overlord's cleave clips and Shinegen's guard, recoil, and death poses.
 
 ## Demon Overlord animation map
 
@@ -51,10 +51,18 @@ The boss's `[attacks]` entries define `wind`, `active`, `recover`, `reach`, `hei
 
 ## Story, backgrounds, and sound
 
+Place new scenery using the named props and ground anchors in `scripts/arena.gd`. Sprite scale stays uniform and the bottom anchor sits on the visible ground plane. These props have no collision. Road obstacles, bridge decks, checkpoints, and gates remain independent.
+
+Use 16:9 Ogg Theora with Vorbis audio for a replacement first-death clip, then set `[visual] story_video` in `resources/encounter.cfg`. Set `story_video_end` just beyond the measured clip duration. This boundary handles decoders that hold the last frame after audio and video finish. Keep the separate timeout above that value.
+
+The curse and sword placement are staged in `scripts/throne.gd`. The body fades separately from the Ketsumei sprite. The spirit fragments fade in place before the sword falls. The heir preview uses the existing samurai silhouette and an anonymous emblem and hand pose. Keep the epilogue's dialogue timings aligned with the named ending beats in the scene script.
+
+`scripts/interface.gd` draws The Between for both resurrection lengths. `scripts/effects.gd` supplies the shared spirit silhouette and crimson thread. The two gateways stay distant throughout.
+
 - In `resources/encounter.cfg`, each item in `[story] ending` specifies an illustration key, line, and duration. Add `track`, `cue`, or a `voice` resource path to start audio when the panel appears. Panel options include `background`, `foreground`, `mask`, `pan` as a Vector2, `zoom`, and a hero `animation` cue. Edit `[illustrations]` to point each key at a PNG or JPG. Panels with no illustration leave the live arena visible behind the dialogue. Use 1280 × 720 or larger and keep important details away from the edges to allow the camera to pan.
 - Replace the active backgrounds with `[backgrounds]` paths for `courtyard`, `road`, `shrine`, `underworld`, `frozen`, and `throne`. World Y=572 is the floor. `[visual] background_opacity` blends replacement textures into their procedural environment.
 - Set keys in `[audio]` to imported WAV, OGG, or MP3 paths. Sound effects play once. The music player loops MP3 tracks and accepts the import loop settings for other formats. Missing audio paths are silent. `[music_db]` and `[music_start]` accept overrides per cue in dB and seconds. `[music_settings] fade_db_per_second` controls the fade rate.
-- Set `charge_limit` in `resources/player_progression.tres`. Set `[resurrection]` for duration, return timing, and post-return invulnerability. Adjust Death Reversal damage, radius, and cooldown in the same section. Set `[timing]` for the opening death, afterlife, and Final Flash. Keep `soul_departure < soul_return < awakening_flash < awakening_total` and `final_freeze < final_slash < final_shatter < final_victory`.
+- Set `charge_limit` in `resources/player_progression.tres`. Set `[resurrection]` for duration, return timing, and post-return invulnerability. Adjust Death Reversal damage, radius, and cooldown in the same section. Set `[timing]` for the opening death, The Between, and Final Flash. Keep `soul_departure < soul_return < awakening_flash < awakening_total` and `final_freeze < final_slash < final_shatter < final_victory`.
 - Edit `resources/oath_gradient.tres` to tune the gradient used for awakened swings and Final Flash. Its colors were sampled from the supplied VFX reference.
 
 The supplied [Boss: Minotaur](https://chierit.itch.io/boss-minotaur) sheet is by chierit under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The game slices, mirrors, scales, tints, and retimes the frames. The source atlas and attribution are in `assets/minotaur/`.

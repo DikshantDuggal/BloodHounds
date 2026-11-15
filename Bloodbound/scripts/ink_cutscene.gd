@@ -23,8 +23,7 @@ func _draw() -> void:
 	draw_on(self,"clan",progress,illustration,foreground,reveal_mask,{})
 
 func draw_on(canvas: CanvasItem, key: String, p: float, background: Texture2D, layer: Texture2D, mask: Texture2D, options: Dictionary) -> void:
-	var abyss := key == "abyss"
-	var paper := Color("#a98179") if abyss else PAPER
+	var paper := PAPER
 	canvas.draw_rect(Rect2(Vector2.ZERO,SIZE),paper)
 	var reveal := smoothstep(0,.32,p)
 	var pan: Vector2 = options.get("pan",Vector2(42,0))
@@ -74,20 +73,6 @@ func draw_on(canvas: CanvasItem, key: String, p: float, background: Texture2D, l
 						end,start.lerp(end,.66)+across*7,start+across*9])
 					canvas.draw_colored_polygon(brush,Color(CRIMSON,.83))
 					canvas.draw_line(start,end,Color("#f5e3cc",.8),2.1,true)
-			"celestial", "abyss":
-				var color := CRIMSON if abyss else GOLD
-				canvas.draw_arc(Vector2(center,422),114,PI,TAU,60,Color(INK,.65),22,true)
-				for side: float in [-1,1]:
-					canvas.draw_line(Vector2(center+side*114,421),Vector2(center+side*114,530),Color(INK,.65),22,true)
-				var soul := Vector2(center+sin(p*4)*27,513-p*127)
-				canvas.draw_circle(soul,24,Color(color,.16),true,-1,true)
-				canvas.draw_circle(soul,8,Color("#fff3d9"),true,-1,true)
-				if p>.5:
-					var thread := PackedVector2Array()
-					for i in 22:
-						var t := i/21.0
-						thread.append(soul.lerp(Vector2(center+232,563),t)+Vector2(0,sin(t*9+p*26)*11*sin(t*PI)))
-					canvas.draw_polyline(thread,CRIMSON,2.3,true)
 			_:
 				warrior(canvas,Vector2(center-67,541),1.65,reveal,key=="ending")
 				if key=="ending":
@@ -117,7 +102,7 @@ func draw_art(canvas: CanvasItem, texture: Texture2D, p: float, pan: Vector2, zo
 	canvas.draw_texture_rect(texture,Rect2((SIZE-size)*.5+pan*(p-.5),size),false,Color(1,1,1,opacity))
 
 func landscape(canvas: CanvasItem, center: float, p: float, key: String) -> void:
-	var red := key in ["death","massacre","abyss"]
+	var red := key in ["death","massacre"]
 	var sun := Color(CRIMSON,.54) if red else Color(GOLD,.5)
 	canvas.draw_circle(Vector2(center+28,235),97,sun,true,-1,true)
 	canvas.draw_arc(Vector2(center+28,235),101,-2.4,1.45,65,Color(INK,.36),2,true)

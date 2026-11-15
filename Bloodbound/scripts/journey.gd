@@ -2,6 +2,8 @@ extends Node
 
 const ENEMY = preload("res://scenes/Enemy.tscn")
 const Strike = preload("res://scripts/strike.gd")
+const PHANTOM_WARD := 1024.0
+const SEVER_TARGET := Rect2(1677,490,28,82)
 const PLACEMENTS := {
 	"road": [["forest_hunter","hunter",1920]],
 	"frozen": [["hunter","hunter",1000],["brute","brute",1320]]
@@ -61,6 +63,7 @@ func reset() -> void:
 func enter(area: String, x: float = -1.0, backward: bool = false) -> void:
 	clear_enemies()
 	game.arena.set_area(area)
+	game.arena.show_sever_target = area == "shrine" and defeated.has("sovereign") and not defeated.has("sever_target")
 	if area != "shrine" or defeated.has("sovereign"):
 		game.hero.progression.enter_level(AREAS.find(area)+1)
 	game.boss.hide()
@@ -87,11 +90,12 @@ func enter(area: String, x: float = -1.0, backward: bool = false) -> void:
 		enemy.telegraph.connect(on_tell)
 		enemy.defeated.connect(on_defeated)
 		enemies.append(enemy)
-	gate_opening = area == "frozen" and enemy_count() == 0 and not game.hero.progression.has("echo")
+	gate_opening = area == "frozen" and enemy_count() == 0 and not game.hero.progression.has("reversal")
 	var side_pending := area == "shrine" and not defeated.has("sovereign")
 	game.arena.set_exit_open(enemy_count() == 0 and not gate_opening and not side_pending)
 	if area == "courtyard":
-		game.arena.gate_closed = 1.0
+		game.arena.gate_closed = 0.0 if defeated.has("phantom_ward") else 1.0
+		game.arena.phantom_ward = 0.0 if defeated.has("phantom_ward") else PHANTOM_WARD
 	elif area == "frozen":
 		game.arena.gate_closed = 0.0 if game.arena.exit_open else 1.0
 	announce({"road":"OLD STONE BRIDGE","underworld":"MOONLIT PASS"}.get(area,NAMES[area]),3.3)
@@ -132,6 +136,9 @@ func act() -> int:
 	var index := AREAS.find(game.arena.area)
 	return 0 if index == 0 else 1 if index < 3 else 2
 
+func show_phantom_hint() -> bool:
+	return game.hero.progression.has("phantom") and not defeated.has("phantom_ward")
+
 func tick(dt: float) -> void:
 	notice_time = maxf(0,notice_time-dt)
 	tell_time = maxf(0,tell_time-dt)
@@ -154,17 +161,30 @@ func tick(dt: float) -> void:
 		game.hero.health = 0
 		game.hero_died()
 		return
-	if area == "courtyard" and x >= 970.0:
-		game.arena.gate_closed = move_toward(game.arena.gate_closed,0.0,dt*2.3)
+	if area == "courtyard":
+		var hero = game.hero
+		if x >= 790.0 and not hero.progression.has("phantom"):
+			hero.position.x = 790.0
+			game.level_reward(2,area,790.0)
+			return
+		if x >= PHANTOM_WARD and not defeated.has("phantom_ward"):
+			if hero.phantom and hero.facing > 0:
+				defeated["phantom_ward"] = true
+				game.arena.phantom_ward = 0.0
+				save_checkpoint(area,PHANTOM_WARD+22.0)
+				game.sound.cue("gate")
+			else:
+				hero.position.x = PHANTOM_WARD-12.0
+		if defeated.has("phantom_ward"):
+			game.arena.gate_closed = move_toward(game.arena.gate_closed,0.0,dt*2.3)
+		elif x > PHANTOM_WARD-100.0 and float(game.powers.cooldowns.get("phantom",0)) <= 0.0:
+			hero.energy = maxf(hero.energy,hero.progression.phantom_cost)
 	if area == "road" and game.arena.FOREST_BRIARS.has_point(game.hero.position-Vector2(0,4)):
 		game.hero.defend(Strike.new(game.arena.FOREST_BRIARS,9,-1,false,"briars",-1))
 		if game.state != game.State.APPROACH:
 			return
 	if CHECKPOINTS.has(area) and x >= float(CHECKPOINTS[area])-20 and not intro_seen.has(area):
 		intro_seen[area] = true
-		if area == "underworld" and not game.hero.progression.has("reversal"):
-			game.level_reward(4,area,CHECKPOINTS[area])
-			return
 		save_checkpoint(area,CHECKPOINTS[area],true)
 		announce("%s  ·  CHECKPOINT" % NAMES[area])
 	if area == "shrine" and x >= 736.0 and not defeated.has("sovereign"):
@@ -179,6 +199,8 @@ func traverse(area: String, x: float) -> void:
 		enter(previous,game.arena.WIDTHS[previous]-256.0,true)
 		return
 	if x < game.arena.exit_x or not game.arena.exit_open:
+		return
+	if area == "courtyard" and not defeated.has("phantom_ward"):
 		return
 	var next: String = AREAS[index+1]
 	if next == "throne":
@@ -198,7 +220,7 @@ func tick_pack(dt: float) -> void:
 			gate_opening = false
 			game.arena.set_exit_open(true)
 			game.sound.play_track("frozen","")
-			game.level_reward(5,"frozen",game.arena.exit_x-148.0)
+			game.level_reward(4,"frozen",game.arena.exit_x-148.0)
 		return
 	if enemy_count() == 0:
 		return
@@ -220,6 +242,14 @@ func tick_pack(dt: float) -> void:
 		enemy.attack_allowed = not music_encounter.is_empty() and (enemy == pack_attacker or (pack_attacker == null and pack_rest <= 0.0 and takes_turn))
 
 func strike_enemies(strike) -> void:
+	if game.arena.area == "shrine" and strike.source == "sever" and defeated.has("sovereign") \
+			and not defeated.has("sever_target") and SEVER_TARGET.intersects(strike.box):
+		defeated["sever_target"] = true
+		game.arena.show_sever_target = false
+		game.sound.cue("shatter")
+		game.effects.burst(SEVER_TARGET.get_center(),Color("#cd9ef9"),22,135,-56,.6)
+		if AREAS.find(checkpoint_area) <= AREAS.find("shrine"):
+			save_checkpoint("shrine",game.arena.exit_x-220.0)
 	for enemy in enemies:
 		if strike.source == "reversal":
 			strike.direction = signf(enemy.position.x-game.hero.position.x)
@@ -245,7 +275,6 @@ func on_tell(label: String, cue: String) -> void:
 
 func on_defeated(enemy) -> void:
 	defeated[enemy.route_id] = true
-	game.morality_score += 1
 	game.sound.cue("wolf_death")
 	game.effects.burst(enemy.position+Vector2(0,-42),enemy.accent,35,165,31,.69)
 	if enemy_count() != 0:

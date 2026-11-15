@@ -58,6 +58,11 @@ func reset_animation() -> void:
 	if imported:
 		imported.stop()
 
+func set_body_opacity(value: float) -> void:
+	self_modulate.a = value
+	if imported:
+		imported.self_modulate.a = value
+
 func animation_for(pose: String) -> StringName:
 	if imported:
 		var name: StringName = profile.get_value("animations", pose, pose)

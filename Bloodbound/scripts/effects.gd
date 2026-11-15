@@ -257,11 +257,19 @@ func draw_story() -> void:
 		var p: float = t - director.timing("final_shatter")
 		var fade := smoothstep(.34,1.25,p) * (1.0-smoothstep(2.2,3.16,p))
 		draw_ancestral_figures(boss.position,fade)
-	if director.state == director.State.DOOM:
+	if director.state == director.State.DOOM and t < director.timing("doom_wind"):
 		var p := clampf(t / director.timing("doom_wind"), 0, 1)
-		draw_line(Vector2(96, 569), Vector2(1184, 569), Color(red, .15 + p * .58), 1 + p * 4, true)
-		draw_line(Vector2(96, 544), Vector2(1184, 544), Color(red, p * .14), 1.0)
-		rune(boss.position + Vector2(0,-191), 42 * p, Color(red, .65))
+		rune(boss.position + Vector2(0,-191), 26 * p, Color(red, .45))
+	if director.state == director.State.DOOM:
+		var impact: float = t-director.timing("doom_wind")
+		if impact >= 0.0 and impact < .41:
+			var chest := at+Vector2(5*hero.facing,-48)
+			var split := PackedVector2Array([chest+Vector2(-8,-9),chest+Vector2(0,-3),
+				chest+Vector2(-3,3),chest+Vector2(8,9)])
+			var strength := 1.0-smoothstep(.16,.41,impact)
+			draw_polyline(split,Color("#1b1423",strength),4.0)
+			draw_polyline(split,Color("#ffc5a3",strength),1.5)
+			draw_rect(Rect2(chest+Vector2(8,-8),Vector2(4,3)),Color("#a73c58",strength))
 	if director.state == director.State.LAST_CHANCE and t >= .8 and t < director.timing("final_retry") - .35:
 		var x: float = boss.position.x - (t - .8) * 482
 		var crest := PackedVector2Array([Vector2(x - 27, 570), Vector2(x - 14, 545),
@@ -270,17 +278,21 @@ func draw_story() -> void:
 		draw_polyline(crest, Color("#e8ccff"), 2.1, true)
 	if director.state == director.State.RESURRECTING and director.reversal:
 		var p := clampf(t / director.resurrection_duration(),0,1)
-		if p < .66:
-			var soul := at + Vector2(30*sin(p*PI),-55-105*sin(p*PI))
-			draw_line(soul,at+Vector2(7,-15),Color("#ec3c64",.84),2.4,true)
-			draw_circle(soul,12,Color("#fff3d4",.86),true,-1,true)
-		else:
+		if p >= .66:
 			var wave := (p-.66)/.34
 			draw_set_transform(at + Vector2(0,-25),0,Vector2(1,.36))
 			draw_arc(Vector2.ZERO,28+174*wave,0,TAU,70,Color("#fff4d9",1-wave),4,true)
 			draw_set_transform(Vector2.ZERO)
 	if director.state in [director.State.AWAKEN, director.State.RESURRECTING]:
 		draw_soul(at, t, director.state == director.State.RESURRECTING)
+	elif director.state == director.State.EPILOGUE and t < director.HERO_GONE:
+		var center := at + Vector2(-hero.facing*21,-46)
+		var grip: Vector2 = director.hero_art.weapon_pivot.global_position
+		var fraying := smoothstep(4.6,director.CURSE_START+2.4,t)
+		draw_thread(self,center,grip,t,smoothstep(.5,1.7,t)*(1.0-fraying)*.78,fraying)
+		if t >= director.CURSE_START:
+			var reveal := smoothstep(director.CURSE_START,director.CURSE_START+.55,t)
+			draw_spirit(self,center,.85,reveal,director.soul_erasure())
 	if director.state in [director.State.FLASH_PREP, director.State.FLASH_OPEN]:
 		var field := at + Vector2(hero.facing * 34, -61)
 		var intensity := .46 if director.state == director.State.FLASH_PREP else .89
@@ -368,22 +380,51 @@ func draw_ancestral_figures(hit: Vector2, fade: float) -> void:
 		draw_line(at+Vector2(15,-26),at+Vector2(28,-79),tone,2,true)
 
 func draw_soul(at: Vector2, time: float, brief: bool) -> void:
-	var depart: float = .10 if brief else .48
-	var realm_start: float = director.resurrection_duration() * .30 if brief else director.timing("soul_departure")
-	var realm_end: float = director.resurrection_duration() * .58 if brief else director.timing("soul_return")
-	var land: float = director.resurrection_duration() * .84 if brief else director.timing("awakening_flash")
-	var rise := smoothstep(depart,realm_start,time)
-	var fall := smoothstep(realm_end,land,time)
-	var strength := rise * (1-fall)
+	var duration: float = director.resurrection_duration()
+	var depart: float = duration*.08 if brief else .48
+	var between_start: float = duration*director.BETWEEN_OPEN if brief else director.timing("soul_departure")
+	var between_end: float = duration*director.BETWEEN_CLOSE if brief else director.timing("soul_return")
+	var land: float = duration*.79 if brief else director.timing("awakening_flash")
+	var rise := smoothstep(depart,between_start,time)
+	var fall := smoothstep(between_end,land,time)
+	var strength := rise * (1.0-fall)
 	if strength <= .01:
 		return
-	var soul := at + Vector2(22 * rise * (1-fall),-35 - (95 if brief else 150) * strength)
-	var tint := Color("#fff1e6")
-	for i in range(4,0,-1):
-		draw_circle(soul,6+i*6,Color(tint,strength*.07))
-	draw_circle(soul,8,Color(tint,strength*.92),true,-1,true)
-	if time >= realm_end:
-		draw_line(soul,at+Vector2(49,-3),Color("#ff5477",strength*.84),2,true)
+	var soul := at + Vector2(-hero.facing*18*strength,-30-(74 if brief else 110)*strength)
+	var grip: Vector2 = director.hero_art.weapon_pivot.global_position
+	draw_thread(self,soul,grip,time,strength)
+	draw_spirit(self,soul,.78,strength,0.0)
+
+func draw_thread(canvas: CanvasItem, spirit: Vector2, grip: Vector2, time: float, alpha: float, fraying := 0.0) -> void:
+	if alpha <= .01:
+		return
+	var points := PackedVector2Array()
+	for i in 17:
+		var p := i/16.0
+		points.append(spirit.lerp(grip,p)+Vector2(0,sin(p*9.0-time*6.0)*10.0*sin(p*PI)))
+	var gap := roundi(fraying*6.0)
+	var pieces := [points] if gap == 0 else [points.slice(0,9-gap),points.slice(8+gap)]
+	for piece: PackedVector2Array in pieces:
+		canvas.draw_polyline(piece,Color("#a31443",alpha*.43),6.0,true)
+		canvas.draw_polyline(piece,Color("#ff587c",alpha),1.8,true)
+
+func draw_spirit(canvas: CanvasItem, center: Vector2, size: float, alpha: float, erasure: float) -> void:
+	if alpha <= .01 or erasure >= 1.0:
+		return
+	const WIDTHS := [5,7,7,5,11,17,15,13,11,11,13,13,13,13,15,15]
+	for row in WIDTHS.size():
+		var half: int = WIDTHS[row] >> 1
+		for column in range(-half,half+1):
+			if row >= 11 and absi(column) < (row-9)*.55:
+				continue
+			var seed := fposmod(float(column*73+row*137),101.0)/101.0
+			var loss := smoothstep(seed*.78,seed*.78+.22,erasure)
+			if loss >= 1.0:
+				continue
+			var offset := Vector2(column*3,(row-8)*4) + Vector2(column*1.6,(row-7)*1.9)*loss
+			var cell := (center+offset*size).round()
+			var tint := Color("#ffd4ac").lerp(Color("#fff9e7"),seed)
+			canvas.draw_rect(Rect2(cell,Vector2(3,4)*size*(1.0-loss*.58)),Color(tint,alpha*(1.0-loss)*.76))
 
 func rune(at: Vector2, radius: float, color: Color) -> void:
 	var points := PackedVector2Array([at + Vector2(0,-radius), at + Vector2(radius*.63,0),

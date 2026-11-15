@@ -48,7 +48,10 @@ func run() -> void:
 	render_output = OS.get_environment("BLOODBOUND_QA_DIR")
 	game = WORLD.instantiate()
 	var fallback := "--no-art" in OS.get_cmdline_user_args()
+	var use_movie := "--no-video" not in OS.get_cmdline_user_args()
 	root.add_child(game)
+	if not use_movie:
+		game.ui.story_movie.stream = null
 	if fallback:
 		for art in [game.sovereign_art,game.overlord_art]:
 			art.imported.hide()
@@ -61,15 +64,23 @@ func run() -> void:
 	check_stats()
 	if "--base-duel" in OS.get_cmdline_user_args():
 		game.ui.show_panel("")
+		game.hero.progression.unlock_for(1)
 		game.enter_duel()
-		verify(await play_duel(),"Base damage and health can finish the final duel without Death Reversal")
+		verify(await play_duel(),"The starting stat tier with Ancestral Resurrection can finish the final duel")
 		if failures == 0:
 			verify(await until_state(game.State.FLASH_OPEN,155),"Base build reaches One Flash")
 			await press(KEY_F)
-			verify(await until_state(game.State.VICTORY,1830),"Base build reaches victory")
+			verify(await until_state(game.State.VICTORY,2250),"Base build reaches credits")
 		await exit_test(failures)
 		return
+	await wait_ticks(52)
 	await capture("title")
+	await press(KEY_DOWN)
+	await press(KEY_DOWN)
+	await press(KEY_ENTER)
+	verify(game.state == game.State.TITLE and game.ui.menu_name == "audio","Title settings open from the keyboard")
+	await press(KEY_ESCAPE)
+	verify(game.ui.menu_name == "title","Settings return to the title menu")
 	await press(KEY_ENTER)
 	verify(game.state == game.State.VILLAGE, "Begin opens the playable ruined village")
 	input_key(KEY_D,true)
@@ -80,7 +91,9 @@ func run() -> void:
 	await wait_ticks(89)
 	await capture("opening-clash")
 	verify(await until_state(game.State.PROLOGUE, 2810), "Choreographed opening leads to the courtyard duel")
-	verify(game.arena.area == "courtyard" and game.boss.visible, "First villain encounter takes place in the Fallen Courtyard")
+	verify(game.arena.area == "courtyard" and game.boss == game.overlord and game.boss.visible and not game.sovereign.visible,
+		"The Demon Overlord is the opening villain")
+	verify(game.hero.profile.get_value("identity","name") == "Shinegen Oda","Shinegen Oda is named correctly")
 	input_key(KEY_D,true)
 	await wait_ticks(21)
 	input_key(KEY_D,false)
@@ -91,25 +104,75 @@ func run() -> void:
 	await wait_ticks(10)
 	verify(game.paused and game.clock == paused_time, "Pause stops the encounter clock")
 	await press(KEY_ESCAPE)
-	verify(await until_state(game.State.DEPARTURE, 2900), "The first duel ends in scripted death")
+	verify(await until_state(game.State.DOOM, 2900), "Opening combat triggers the fatal strike")
+	verify(game.hero.pose == "parry" and game.hero.position.y == 572,"Shinegen defends while standing")
+	await wait_ticks(ceili(game.timing("doom_wind")*60)+4)
+	verify(game.hero.pose == "fatal_recoil" and game.hero.health > 0 and not game.hero_art.released_weapon,"The sword connects before Shinegen falls")
+	await capture("fatal-strike")
+	await wait_ticks(39)
+	verify(game.arena.fatal_impact.y == game.arena.FLOOR-2.0 and game.hero.pose == "death",
+		"The finishing strike breaks stone at the floor without moving the body through it")
+	await capture("ground-impact")
+	verify(await until_state(game.State.DEPARTURE, 140), "The first duel ends in scripted death")
 	verify(game.hero.health == 0 and not game.hero.awakened and game.boss.visible, "Hero falls while the villain remains on screen")
 	var origin: float = game.boss.position.x
 	await wait_ticks(195)
-	verify(game.boss.position.x > origin + 70 and game.boss.visible, "The Sovereign walks toward the exit")
+	verify(game.boss.position.x > origin + 55 and game.boss.visible, "The demon walks toward the exit")
 	verify(game.hero_art.released_weapon and absf(game.hero_art.weapon_pivot.global_position.y-563.0) < 2.0,
-		"Ketsumei rests beside Ilyen during the Sovereign departure")
+		"Ketsumei rests beside Shinegen during the demon's departure")
 	await capture("departure")
-	verify(await until_state(game.State.AWAKEN, 300), "Sovereign leaves and the gate closes before awakening")
+	verify(await until_state(game.State.AWAKEN, 300), "The demon leaves and the gate closes before awakening")
 	verify(not game.boss.visible and game.arena.gate_closed == 1.0, "The villain is absent before the soul rises")
-	await wait_ticks(390)
-	await capture("afterlife")
-	await wait_ticks(218)
+	await wait_ticks(59)
+	verify(game.profile.get_value("story","first_death_line") == "Your life has not ended yet."
+		and not game.ui.story_movie_backdrop.visible,"The message comes before the video")
+	await capture("first-death-line")
+	if use_movie:
+		for frame in 150:
+			if game.ui.story_movie_backdrop.visible:
+				break
+			await physics_frame
+		verify(game.ui.story_movie.is_playing() and not game.boss.visible,"The Oda lore video starts after the demon leaves")
+		await wait_ticks(286)
+		verify(game.ui.story_movie.stream_position > 3.5,"Godot decodes the Oda video during playback")
+		await capture("oda-video")
+		for frame in 780:
+			if not game.ui.story_movie_backdrop.visible:
+				break
+			await physics_frame
+		verify(not game.ui.story_movie_backdrop.visible and game.story_movie_elapsed >= 9.0
+			and game.story_movie_elapsed <= 10.45,"The complete Oda movie exits at its measured duration")
+	else:
+		await wait_ticks(68)
+		verify(game.story_movie_attempted and not game.ui.story_movie_backdrop.visible,
+			"Missing video continues into The Between")
+	await wait_ticks(165)
+	verify(game.state == game.State.AWAKEN and game.clock >= game.timing("soul_departure")
+		and game.clock < game.timing("soul_return") and game.sound.bank.has("between"),
+		"First resurrection uses The Between")
+	if DisplayServer.get_name() != "headless":
+		verify(game.sound.track == "between","The first Between scene uses its own cue")
+	await capture("between-first")
+	await wait_ticks(76)
+	await capture("between-oath")
+	await wait_ticks(240)
 	await capture("sword-return")
 	verify(await until_state(game.State.APPROACH, 1430), "First resurrection restores control")
 	verify(not game.hero_art.released_weapon and game.hero_art.weapon_sprite.self_modulate == Color.WHITE,
 		"First resurrection returns the original sword to the hand")
 	verify(game.arena.area == "courtyard" and not game.boss.visible and game.hero.resurrection_level == 1
 		and game.hero.progression.charges == 3, "The heir wakes in the empty courtyard with three charges")
+	verify(game.hero.progression.unlocked == PackedStringArray(["resurrection"]),"First awakening grants only Ancestral Resurrection")
+	await travel(999,KEY_D)
+	verify(game.hero.progression.unlocked == PackedStringArray(["resurrection","phantom"]),"Morning training grants Phantom Step as the second power")
+	input_key(KEY_D,true)
+	await wait_ticks(25)
+	input_key(KEY_D,false)
+	verify(game.hero.position.x < game.journey.PHANTOM_WARD and not game.journey.defeated.has("phantom_ward"),"Ordinary movement stops at the ward")
+	await press(KEY_E)
+	await wait_ticks(17)
+	verify(game.journey.defeated.has("phantom_ward"),"Phantom Step passes the ward")
+	await capture("phantom-ward")
 	await walk_until("road",320)
 	verify(game.journey.enemy_count() == 1 and game.journey.enemies[0].kind == "hunter" and game.journey.act() == 1,"Afternoon forest replaces archers with one Hunter")
 	await travel(825,KEY_D)
@@ -135,23 +198,23 @@ func run() -> void:
 	await travel(754,KEY_D)
 	verify(await until_state(game.State.FIGHT,250),"The afternoon shrine introduces the Sovereign")
 	verify(game.boss == game.sovereign and game.boss.maximum == 350 and game.boss.health == 350,
-		"The former final boss takes the 350 HP shrine slot")
+		"The Skull Guardian takes the 350 HP shrine slot")
 	await capture("side-boss")
 	var shrine_won := await play_duel(true)
 	print("Sovereign test approach and combat seconds: ",game.elapsed-shrine_start)
-	verify(shrine_won,"Keyboard combat defeats the Hollow Sovereign")
+	verify(shrine_won,"Keyboard combat defeats the Skull Guardian")
 	if not shrine_won:
 		await exit_test(1)
 		return
 	verify(game.state == game.State.MEMORIAL and game.journey.defeated.has("sovereign")
-		and not game.hero.progression.has("flash"),"The side boss resolves only the shrine milestone")
+		and game.hero.progression.unlocked == PackedStringArray(["resurrection","phantom"]),"The side boss resolves only the shrine milestone")
 	await wait_ticks(28)
 	await capture("sovereign-finisher")
 	await wait_ticks(47)
 	await capture("sovereign-defeat")
 	verify(await until_state(game.State.APPROACH,320),"The short in-engine victory returns control")
-	verify(game.hero.maximum == 160 and game.hero.progression.has("phantom") and game.hero.progression.has("sever"),
-		"Sovereign victory raises maximum health and unlocks Phantom Step and Soul Sever")
+	verify(game.hero.maximum == 160 and game.hero.progression.unlocked == PackedStringArray(["resurrection","phantom","sever"]),
+		"Skull Guardian victory raises maximum health and grants only Soul Sever")
 	await check_powers()
 	await walk_until("underworld",550)
 	verify(game.arena.area == "underworld" and game.journey.act() == 2,"Night starts at Moonlit Pass")
@@ -161,7 +224,7 @@ func run() -> void:
 	verify(game.arena.area == "underworld" and game.hero.position.y < 574 and game.hero.position.x < 350,"Moonlit bridge has walkable collision in both directions")
 	await travel(1180,KEY_D)
 	await until_state(game.State.APPROACH,130)
-	verify(game.hero.progression.has("reversal") and game.hero.maximum == 180,"Moonlit checkpoint grants Death Reversal")
+	verify(not game.hero.progression.has("reversal") and game.hero.maximum == 180,"Moonlit checkpoint raises health before Death Reversal is earned")
 	verify(await play_route("frozen"),"Moonlit Pass connects to the wolves' gate")
 	verify(game.journey.enemy_count() == 2 and game.journey.enemies[0].maximum == 150
 		and game.journey.enemies[1].maximum == 220,"Hunter and Brute spawn together with distinct health")
@@ -174,7 +237,8 @@ func run() -> void:
 	await wait_ticks(5)
 	verify(game.arena.area == "frozen" and game.journey.enemy_count() == 0 and game.arena.exit_open,
 		"Retry keeps both werewolves defeated and the gate open")
-	verify(game.hero.progression.has("echo"),"Ancestral Echo persists after the werewolf fight")
+	verify(game.hero.progression.unlocked == PackedStringArray(["resurrection","phantom","sever","reversal"]),
+		"Defeating both wolves grants the fourth regular power, Death Reversal")
 	verify(await play_route("throne"),"The wolves' gate opens the final fortress")
 	if game.arena.area != "throne":
 		await exit_test(1)
@@ -191,10 +255,9 @@ func run() -> void:
 	game.boss.telegraph.connect(func(name: String) -> void: seen_attacks[name] = true)
 	if "--no-art" not in OS.get_cmdline_user_args():
 		check_overlord_damage()
-		await check_echo()
+		check_single_hit()
 		await check_phase_queue()
 		await check_resurrections()
-	var level: int = game.hero.resurrection_level
 	var combat_result: bool = await play_duel()
 	verify(combat_result, "The upgraded heir crosses the final boss phases with keyboard combat")
 	if not combat_result:
@@ -213,25 +276,61 @@ func run() -> void:
 	await wait_ticks(108)
 	await capture("overlord-collapse")
 	verify(await until_state(game.State.EPILOGUE, 320), "The final strike leads to the epilogue")
-	verify(game.boss.health == 0 and game.hero_art.weapon_sprite.self_modulate == Color.WHITE, "One Flash defeats the Demon Overlord and keeps the original sword colors")
-	verify(await until_state(game.State.VICTORY, 1570), "Epilogue reaches the victory menu")
-	await capture("victory")
+	verify(game.boss.health == 0 and game.curse_active and game.hero_art.weapon_sprite.self_modulate == Color.WHITE,
+		"One Flash fulfills the oath and activates the curse")
+	await wait_ticks(171)
+	verify(game.arena.fortress_fall > .3 and game.arena.fortress_fall < 1.0,
+		"The fortress collapses after One Flash and before the curse dissolves Shinegen")
+	await capture("fortress-collapse")
+	await wait_ticks(369)
+	var curse_clock: float = game.clock
+	var position_before: Vector2 = game.hero.position
+	var strike_before: int = game.hero.strike_id
+	var charges_before: int = game.hero.progression.charges
 	game.finish()
-	await press(KEY_ENTER)
-	verify(game.state == game.State.VICTORY,"Skipping the epilogue opens victory without activating Retry")
+	game.command("retry")
+	game.start_resurrection(false)
+	await press(KEY_D)
+	await press(KEY_J)
+	await press(KEY_Q)
+	verify(game.state == game.State.EPILOGUE and game.clock > curse_clock and game.hero.position == position_before
+		and game.hero.strike_id == strike_before and game.hero.progression.charges == charges_before,
+		"The curse plays once and locks movement, attacks, resurrection and retry")
+	await wait_ticks(96)
+	verify(game.state == game.State.EPILOGUE and game.hero_art.released_weapon and game.hero_art.self_modulate.a < .8,
+		"The curse dissolves Shinegen and leaves Ketsumei visible")
+	await capture("curse-dissolution")
+	await wait_ticks(108)
+	var suspended_y: float = game.hero_art.weapon_pivot.global_position.y
+	verify(game.soul_erasure() == 1.0 and game.hero_art.self_modulate.a == 0.0,
+		"Body and soul disappear before the sword lands")
+	await wait_ticks(222)
+	verify(game.soul_erasure() == 1.0 and game.arena.oath_stone > 0.0 and game.hero_art.self_modulate.a == 0.0 and
+		absf(game.hero_art.weapon_pivot.global_position.x-game.arena.oath_stone) < 1.0
+		and game.hero_art.weapon_pivot.global_position.y > suspended_y+20.0,
+		"Ketsumei falls into the stone after the soul is fully erased")
+	await capture("sword-in-stone")
+	await wait_ticks(440)
+	verify(game.arena.heir_progress > 3.35 and game.arena.ending,"An unidentified heir approaches Ketsumei")
+	await capture("future-heir")
+	await wait_ticks(95)
+	verify(game.story.presentation().line == "ONE OATH ENDS.","The first sequel title follows the heir teaser")
+	await capture("one-oath-ends")
+	await wait_ticks(102)
+	verify(game.story.presentation().line == "ANOTHER AWAITS.","The second sequel title follows the first")
+	verify(await until_state(game.State.VICTORY, 480) and game.ui.menu_name == "victory", "The cursed ending reaches credits")
+	await capture("victory")
 	print("Simulated full route seconds (including resurrection checks and retry): ",game.elapsed)
-	await press(KEY_R)
-	verify(game.state == game.State.FIGHT and game.hero.resurrection_level >= level
-		and game.hero.progression.has("reversal"), "Retry preserves earned abilities at the final checkpoint")
 	var ended_run = game.hero.progression
 	game.pulse("white",Color("#fff5de"))
 	game.set_paused(true)
 	game.command("title")
 	await wait_ticks(2)
 	verify(not game.paused and not paused and game.flash_level == 0 and game.state == game.State.TITLE
-		and game.arena.shade == 0 and not game.arena.ending,"Return to Title clears active flashes, arena shading, and pause")
+		and is_equal_approx(game.arena.shade,.32) and not game.arena.ending,"Return to Title clears ending lighting, flashes and pause")
 	verify(game.hero.progression != ended_run and game.journey.defeated.is_empty() and game.journey.checkpoint_area.is_empty()
-		and game.powers.waves.is_empty() and game.powers.echoes.is_empty() and game.story.panels.is_empty(),
+		and game.powers.waves.is_empty() and game.powers.echoes.is_empty() and game.story.panels.is_empty()
+		and not game.curse_active and not game.story_movie_attempted and not game.ui.story_movie_backdrop.visible,
 		"Return to Title discards the run, checkpoints, and active effects")
 	await capture("reset-title")
 	var title_run = game.hero.progression
@@ -246,13 +345,14 @@ func run() -> void:
 	await press(KEY_ENTER)
 	verify(game.state == game.State.REVEAL,"Enter skips the village approach")
 	await press(KEY_ENTER)
-	verify(game.state == game.State.PROLOGUE, "Enter safely skips the courtyard introduction")
+	verify(game.state == game.State.PROLOGUE and game.hero.visible and game.boss == game.overlord and game.arena.oath_stone == 0.0,
+		"After credits, the opening restarts with Shinegen alive and the true demon present")
 	game.begin_doom()
 	await press(KEY_ENTER)
 	await press(KEY_ENTER)
 	await press(KEY_ENTER)
 	await press(KEY_ENTER)
-	verify(game.state == game.State.APPROACH and not game.boss.visible, "Skipping death, departure, and afterlife leaves a playable empty courtyard")
+	verify(game.state == game.State.APPROACH and not game.boss.visible, "Skipping death, departure and The Between leaves a playable empty courtyard")
 	print("Observed final boss telegraphs: ", seen_attacks.keys())
 	print("BLOODBOUND smoke complete. Failures: ", failures)
 	await exit_test(failures)
@@ -290,7 +390,7 @@ func travel(x: float, key: Key) -> void:
 func play_route(destination: String) -> bool:
 	for i in 7200:
 		if game.arena.area == destination or (destination == "memory" and game.state == game.State.MEMORIAL) \
-				or (destination == "gate" and game.hero.progression.has("echo") and game.state == game.State.APPROACH):
+				or (destination == "gate" and game.hero.progression.has("reversal") and game.state == game.State.APPROACH):
 			set_keys([])
 			return true
 		if game.state == game.State.DEFEAT:
@@ -365,12 +465,15 @@ func check_powers() -> void:
 	await wait_ticks(18)
 	verify(absf(h.position.x-before.x) > 160.0 and not h.phantom,"Phantom Step travels farther than a regular dodge and ends")
 	if game.arena.area == "shrine":
-		h.position.x = game.arena.exit_x-480.0
+		h.position.x = game.arena.exit_x-420.0
 		h.velocity = Vector2.ZERO
+		await press(KEY_D)
 	await press(KEY_U)
 	await wait_ticks(12)
 	verify(game.powers.waves.size() == 1,"Soul Sever launches once on the animation impact")
 	await capture("soul-sever")
+	await wait_ticks(53)
+	verify(game.journey.defeated.has("sever_target"),"Soul Sever breaks the ranged shrine seal")
 	h.energy = stats.energy_limit
 
 func check_overlord_damage() -> void:
@@ -390,26 +493,15 @@ func check_overlord_damage() -> void:
 		verify(h.health == h.maximum-int(spec[3]),"Overlord applies %d damage for %s" % [spec[3],b.attack])
 	game.enter_duel()
 
-func check_echo() -> void:
-	var h = game.hero
+func check_single_hit() -> void:
 	var b = game.boss
-	h.position.x = b.position.x - 98.0
-	h.facing = 1.0
 	b.mode = b.Mode.RECOVER
-	b.stats = {"recover":9.0}
-	b.clock = 0.0
 	var before: int = b.health
-	h.energy = 100.0
-	await press(KEY_I)
-	verify(game.powers.echo_armed and h.energy == 75.0,"Ancestral Echo arms one repeat")
-	await press(KEY_J)
-	await wait_ticks(10)
-	var after_slash: int = b.health
-	var expected: int = roundi(h.progression.attack_power(1.0))
-	verify(before-after_slash == expected,"Repeated active hitboxes register one melee hit (%d expected, %d applied)" % [expected,before-after_slash])
-	await wait_ticks(24)
-	verify(after_slash < before and b.health < after_slash and not game.powers.echo_armed
-		and game.powers.echoes.is_empty(),"Echo deals one delayed hit after the original slash")
+	game.hero.strike_id += 1
+	var strike := Strike.new(b.hurtbox(),32,1,false,"light_1",game.hero.strike_id)
+	game.hero_strike(strike)
+	game.hero_strike(strike)
+	verify(before-b.health == 32,"Repeated active hitboxes register one melee hit")
 
 func check_phase_queue() -> void:
 	var b = game.boss
@@ -465,12 +557,15 @@ func check_resurrections() -> void:
 	h.iframe = 0.0
 	game.boss_strike(nonlethal)
 	verify(h.health == initial_hp-1,"One enemy strike cannot damage the player twice")
-	game.morality_score = -1
-	verify(game.realm() == "abyss", "Negative morality selects the Abyss")
 	for i in charges-1:
 		h.iframe = 0
 		game.boss_strike(Strike.new(h.hurtbox(), h.maximum, -1, false, "test_lethal", 8100+i))
 		verify(game.state == game.State.RESURRECTING and game.hero.progression.charges == charges-2-i, "Fatal hit spends one automatic charge")
+		await wait_ticks(ceili(game.resurrection_duration()*game.BETWEEN_OPEN*60)+3)
+		verify(game.state == game.State.RESURRECTING and game.clock/game.resurrection_duration() < game.BETWEEN_CLOSE,
+			"Automatic resurrection shows the same Between briefly")
+		if i == 0:
+			await capture("between-brief")
 		verify(await until_state(game.State.FIGHT,90), "Automatic resurrection resumes combat")
 		verify(b.health == boss_hp and b.stage == 2 and h.iframe > .9, "Automatic resurrection preserves boss HP and phase")
 	h.iframe = 0

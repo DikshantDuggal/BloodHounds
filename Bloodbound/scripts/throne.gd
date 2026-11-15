@@ -23,14 +23,14 @@ enum State { TITLE, REVEAL, PROLOGUE, DOOM, AWAKEN, FIGHT, TRANSITION,
 @onready var hero = $Heir
 @onready var sovereign = $Sovereign
 @onready var overlord = $DemonOverlord
-@onready var boss = sovereign
+@onready var boss = overlord
 @onready var arena = $Arena
 
 var profile := Profile.new("res://resources/encounter.cfg")
 var hero_art := Art.new()
 var sovereign_art := Art.new()
 var overlord_art := Art.new()
-var boss_art := sovereign_art
+var boss_art := overlord_art
 var effects := Effects.new()
 var camera := Camera.new()
 var ui := Interface.new()
@@ -38,6 +38,10 @@ var sound := Sound.new()
 var story := Story.new()
 var journey := Journey.new()
 var departure_origin := 0.0
+var doom_origin := 0.0
+var doom_hero_x := 0.0
+var story_movie_attempted := false
+var story_movie_elapsed := 0.0
 var resume_state := State.APPROACH
 var reversal := false
 var powers := Powers.new()
@@ -48,7 +52,7 @@ var low_health := false
 var heartbeat := 0.0
 var low_health_seen := false
 var parry_notice := 0.0
-var morality_score := 0
+var curse_active := false
 var resurrection_flash_pending := false
 var flash_tween: Tween
 var state := State.TITLE
@@ -76,6 +80,14 @@ var desired_mood := 0.0
 var ghost_clock := 0.0
 var side_finish_from := Vector2.ZERO
 var side_finish_to := Vector2.ZERO
+const CURSE_START := 7.9
+const HERO_GONE := 12.4
+const SWORD_LANDS := 14.9
+const NEXT_HEIR := 19.5
+const ENDING_BLACK := 24.5
+const BETWEEN_OPEN := .30
+const BETWEEN_CLOSE := .60
+var ending_weapon := Transform2D.IDENTITY
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -100,7 +112,7 @@ func _ready() -> void:
 	overlord_art.setup(overlord,true)
 	add_child(sound)
 	sound.setup(profile)
-	var boss_frames: SpriteFrames = sovereign_art.imported.sprite_frames if sovereign_art.imported else null
+	var boss_frames: SpriteFrames = overlord_art.imported.sprite_frames if overlord_art.imported else null
 	story.setup(profile, sound, boss_frames)
 	arena.set_profile(profile)
 	add_child(journey)
@@ -172,22 +184,25 @@ func to_title() -> void:
 	hero.position = Vector2(724, 572)
 	boss.position = Vector2(985, 572)
 	hero.script_pose("idle")
-	boss.script_pose("intro")
+	boss.script_pose("idle")
+	boss_art.modulate = Color("#524957")
 	camera.position = Vector2(640, 360)
 	camera.zoom = Vector2.ONE
 	arena.mood = 0.0
+	arena.shade = .32
 	desired_mood = 0.0
 	sound.play_track("main_menu")
 	ui.show_panel("title")
 
 func clean() -> void:
 	hero.reset()
+	hero_art.set_body_opacity(1.0)
 	hero_art.released_weapon = false
 	sovereign.reset()
 	overlord.reset()
-	select_boss(sovereign)
+	overlord_art.modulate = Color.WHITE
+	select_boss(overlord)
 	story.stop()
-	story.renderer.monster = sovereign_art.imported.sprite_frames.get_frame_texture("idle",0) if sovereign_art.imported else null
 	sound.stop_all()
 	effects.clear()
 	clear_flash()
@@ -203,8 +218,9 @@ func clean() -> void:
 	low_health_seen = false
 	parry_notice = 0
 	reversal = false
-	morality_score = 0
+	curse_active = false
 	arena.set_area("courtyard")
+	arena.heir_preview = null
 	arena.time = 0.0
 	arena.backdrop_time = 0.0
 	arena.shade = 0.0
@@ -212,6 +228,11 @@ func clean() -> void:
 	desired_mood = 0.0
 	boss.show()
 	awakening_played = false
+	story_movie_attempted = false
+	story_movie_elapsed = 0.0
+	ui.stop_story_movie()
+	overlord_art.rotation = 0.0
+	overlord_art.position = Vector2.ZERO
 	shatter_played = false
 	slash_played = false
 	missed_wave = false
@@ -239,10 +260,11 @@ func begin() -> void:
 	transition_to(State.VILLAGE)
 
 func wake_in_courtyard() -> void:
+	ui.stop_story_movie()
 	hero.progression.resurrect()
 	hero.awakened = true
 	hero.energy = 26.0
-	var wake_x := clampf(fallen_from.x,174.0,1070.0)
+	var wake_x := clampf(fallen_from.x,174.0,720.0)
 	hero_art.released_weapon = false
 	journey.enter("courtyard",wake_x)
 	level_reward(1,"courtyard",wake_x)
@@ -270,7 +292,7 @@ func update_health_cues(dt: float) -> void:
 func level_reward(level: int, area: String, x: float) -> void:
 	var ability: String = hero.progression.unlock_for(level)
 	hero.progression.refill()
-	if level == 4:
+	if ability in ["sever","reversal"]:
 		hero.energy = hero.progression.energy_limit
 	journey.save_checkpoint(area,x)
 	if ability.is_empty():
@@ -308,8 +330,6 @@ func tick_unlock(dt: float) -> void:
 			"reversal":
 				hero.pose = "reversal" if p < .58 else "resurrect"
 				hero.phase = smoothstep(.58,1.0,p) if p >= .58 else smoothstep(.30,.58,p)
-			"echo":
-				hero.pose = "light_3" if p < .65 else "finish"
 			_:
 				hero.pose = "resurrect" if p < .66 else "idle"
 	if p >= 1.0:
@@ -346,7 +366,6 @@ func start_side_fight() -> void:
 
 func defeat_side_boss() -> void:
 	journey.defeated["sovereign"] = true
-	morality_score += 1
 	side_finish_from = hero.position
 	side_finish_to = Vector2(hero.position.x,572)
 	var side: float = 1.0 if boss.position.x >= hero.position.x else -1.0
@@ -384,21 +403,22 @@ func finish_side_defeat() -> void:
 	hero.position = side_finish_to
 	boss.hide()
 	arena.set_exit_open(true)
+	arena.show_sever_target = true
 	story.stop()
 	hero.progression.enter_level(3)
-	hero.progression.unlock_for(3)
-	level_reward(2,"shrine",arena.exit_x-220.0)
+	level_reward(3,"shrine",arena.exit_x-220.0)
 	sound.play_track("shrine","")
-
-func realm() -> String:
-	return "abyss" if morality_score < 0 else "celestial"
 
 func resurrection_duration() -> float:
 	return maxf(.35, float(profile.get_value("resurrection", "duration", 1.20)))
 
 func reveal() -> void:
+	select_boss(overlord)
+	boss.reset()
+	boss_art.modulate = Color.WHITE
 	boss.show()
 	boss.position = Vector2(964, 572)
+	boss.facing = -1
 	hero.position = Vector2(338, 572)
 	boss.script_pose("idle")
 	hero.script_pose("run")
@@ -407,11 +427,15 @@ func reveal() -> void:
 
 func start_prologue() -> void:
 	arena.set_area("courtyard")
+	if boss != overlord:
+		select_boss(overlord)
+		boss.reset()
+		boss.position = Vector2(964,572)
 	boss.visible = true
 	hero.position = Vector2(286,572)
 	hero.enable()
 	boss.enter_stage(0)
-	boss.encounter_floor = roundi(boss.maximum*.74)
+	boss.encounter_floor = roundi(boss.maximum*.86)
 	boss.damage_scale = .63
 	transition_to(State.PROLOGUE)
 	sound.play_track("opening_duel","")
@@ -420,36 +444,79 @@ func begin_doom() -> void:
 	if state != State.PROLOGUE:
 		return
 	transition_to(State.DOOM)
+	floor_fighters()
+	hero.position.x = clampf(hero.position.x,145.0,1135.0)
+	doom_origin = boss.position.x
+	doom_hero_x = hero.position.x
 	hero.facing = -1.0 if boss.position.x < hero.position.x else 1.0
-	hero.script_pose("hurt")
+	hero.script_pose("parry")
 	boss.facing = -hero.facing
-	boss.script_pose("doom")
+	boss.script_pose("cleave_wind")
 	sound.play_track("")
 	sound.cue("buildup")
 
 func begin_departure() -> void:
+	var fall_phase: float = hero.phase if hero.pose == "death" else 0.0
+	boss_art.rotation = 0.0
+	boss_art.position = Vector2.ZERO
 	transition_to(State.DEPARTURE)
 	departure_origin = boss.position.x
 	hero.health = 0
 	fallen_from = hero.position
-	released_from = hero_art.hand_transform()
+	released_from = hero_art.weapon_pivot.transform if hero_art.released_weapon else hero_art.hand_transform()
 	fallen_weapon = Transform2D(0,Vector2(hero.facing,1)*hero_art.weapon_scale,0,Vector2(85*hero.facing,563-fallen_from.y)) * Transform2D(deg_to_rad(85.0),Vector2.ZERO)
 	hero_art.released_weapon = true
-	hero.script_pose("death")
-	boss.script_pose("doom_recover")
-	effects.arc(boss.position + Vector2(60 * boss.facing, -83), boss.facing, 194, Color("#e55984"))
-	effects.bleed(hero.position+Vector2(0,-42),boss.facing)
+	hero.script_pose("death",fall_phase)
+	boss.script_pose("cleave_recover")
 	awakening_played = false
 	sound.play_track("first_death", "")
 	sound.cue("death")
-	pulse("dust", Color("#bd345e"))
-	camera.kick(7.6)
-	effects.burst(hero.position + Vector2(0,-31), Color("#e985a5"), 34, 208)
+
+func tick_doom(dt: float) -> void:
+	var contact := timing("doom_wind")
+	var strike_ground := contact+.64
+	boss.visual_time += dt
+	hero.visual_time += dt
+	boss.position.x = lerpf(doom_origin,doom_hero_x+hero.facing*106.0,smoothstep(.12,contact-.18,clock))
+	if clock < contact:
+		boss.phase = smoothstep(0,contact,clock)
+		hero.phase = smoothstep(.22,contact-.12,clock)
+		return
+	if clock-dt < contact:
+		sound.cue("hit")
+		camera.kick(4.5)
+		effects.burst(hero.position+Vector2(0,-49),Color("#bd4f68"),14,141,-33,.32)
+	# Hold the contact cell before the recoil and the follow-through.
+	boss.pose = "cleave" if clock < strike_ground+.18 else "cleave_recover"
+	boss.phase = smoothstep(strike_ground+.18,contact+1.16,clock) if boss.pose == "cleave_recover" else 0.0
+	hero.position.x = doom_hero_x-hero.facing*48.0*smoothstep(contact+.13,strike_ground,clock)
+	hero.pose = "fatal_recoil" if clock < contact+.33 else "death"
+	hero.phase = smoothstep(contact+.12,contact+.31,clock) if hero.pose == "fatal_recoil" \
+		else smoothstep(contact+.33,contact+.97,clock)
+	var lean := smoothstep(contact+.27,strike_ground,clock)*(1.0-smoothstep(strike_ground+.18,contact+1.16,clock))
+	var planted_foot := Vector2(boss.facing*40.0,0)
+	boss_art.rotation = boss.facing*.42*lean
+	boss_art.position = planted_foot-planted_foot.rotated(boss_art.rotation)
+	if clock >= strike_ground and clock-dt < strike_ground:
+		arena.fatal_impact = Vector2(doom_hero_x-8.0*hero.facing,arena.FLOOR-2.0)
+		sound.cue("shatter")
+		camera.kick(6.4)
+		effects.burst(arena.fatal_impact-Vector2(0,7),Color("#776671"),26,154,151,.64)
+	if clock >= contact+.51:
+		if not hero_art.released_weapon:
+			released_from = hero_art.weapon_pivot.transform
+			hero_art.released_weapon = true
+		var slipping := smoothstep(contact+.51,contact+.96,clock)
+		hero_art.weapon_pivot.transform = released_from.rotated_local(hero.facing*.23*slipping)
+		hero_art.weapon_pivot.position += Vector2(9.0*hero.facing,17.0)*slipping
+	if clock >= contact+1.16:
+		begin_departure()
 
 func start_awakening() -> void:
 	boss.hide()
 	boss.script_pose("idle")
 	arena.gate_closed = 1.0
+	sound.play_track("")
 	transition_to(State.AWAKEN)
 
 func reveal_final() -> void:
@@ -541,29 +608,89 @@ func start_execution() -> void:
 	sound.play_track("")
 
 func finish() -> void:
-	if boss != overlord or boss.health > 0:
+	if state != State.EXECUTE or boss != overlord or boss.health > 0 or curse_active:
 		return
-	morality_score += 1
-	hero.script_pose("victory", 1.0)
+	curse_active = true
+	ghost_clock = 0
+	hero.script_pose("finish", 0.0)
+	hero_art.released_weapon = false
 	boss.script_pose("dissolve", 1.0)
 	desired_mood = 3
 	transition_to(State.EPILOGUE)
 	story.begin(profile.get_value("story","ending",[]))
 
+func soul_erasure() -> float:
+	return 1.0 if state == State.VICTORY else smoothstep(CURSE_START+.55,HERO_GONE,clock)
+
 func show_victory() -> void:
 	story.stop()
+	boss.hide()
+	hero_art.set_body_opacity(0.0)
+	hero_art.released_weapon = true
+	arena.oath_stone = hero.position.x-32.0
+	hero_art.weapon_pivot.transform = embedded_weapon_pose()
 	arena.ending = true
+	arena.fortress_fall = 1.0
+	arena.dawn = .70
 	transition_to(State.VICTORY)
 	sound.play_track("victory")
 	ui.show_panel("victory")
+
+func tick_ending(dt: float) -> void:
+	var previous := clock-dt
+	arena.fortress_fall = smoothstep(.32,4.85,clock)
+	for beat: Vector2 in [Vector2(.64,203),Vector2(1.69,1044),Vector2(2.77,645)]:
+		if previous < beat.x and clock >= beat.x:
+			sound.cue("shatter" if beat.x < 1.0 else "hit")
+			camera.kick(3.4)
+			effects.burst(Vector2(beat.y,543),Color("#827681"),23,138,-35,1.05)
+	hero.visual_time += dt
+	if clock < CURSE_START:
+		hero.phase = smoothstep(.25,2.2,clock)
+		if clock < 2.5:
+			ghost_clock += dt
+			if ghost_clock >= .16:
+				ghost_clock = 0
+				effects.burst(hero_art.weapon_pivot.global_position,Color("#ffca94"),3,23,-38,.55)
+	else:
+		if previous < CURSE_START:
+			hero_art.released_weapon = true
+			ending_weapon = hero_art.weapon_pivot.transform
+			arena.oath_stone = hero.position.x-32.0
+			sound.cue("awakening")
+		var remaining := 1.0-smoothstep(CURSE_START,HERO_GONE,clock)
+		hero_art.set_body_opacity(remaining)
+		var entering_stone := smoothstep(HERO_GONE,SWORD_LANDS,clock)
+		var lifted := ending_weapon
+		lifted.origin.y = lerpf(ending_weapon.origin.y,-155.0,smoothstep(CURSE_START,HERO_GONE,clock))
+		hero_art.weapon_pivot.transform = blend_weapon_pose(lifted,embedded_weapon_pose(),entering_stone)
+		ghost_clock += dt
+		if remaining > 0 and ghost_clock >= .095:
+			ghost_clock = 0
+			effects.burst(hero.position+Vector2(sin(clock*23.0)*29,-45),Color("#ffcc9b"),5,42,-18,.35)
+	if clock >= SWORD_LANDS and previous < SWORD_LANDS:
+		sound.cue("hit")
+		camera.kick(2.2)
+		effects.burst(Vector2(arena.oath_stone,540),Color("#a78c7d"),18,100,-29,.55)
+	arena.dawn = smoothstep(SWORD_LANDS,NEXT_HEIR,clock)*.70
+	if clock >= NEXT_HEIR:
+		boss.hide()
+		arena.ending = true
+		if hero_art.imported:
+			arena.heir_preview = hero_art.imported.sprite_frames
+		arena.heir_progress = clock-NEXT_HEIR
+	if story.advance(dt):
+		show_victory()
+
+func embedded_weapon_pose() -> Transform2D:
+	var grip := Vector2(arena.oath_stone-hero.position.x,arena.oath_grip_y-hero.position.y)
+	return Transform2D(0,Vector2(hero.facing,1)*hero_art.weapon_scale,0,grip)*Transform2D(PI,Vector2.ZERO)
 
 func hero_died() -> void:
 	if state == State.PROLOGUE:
 		begin_doom()
 	elif state in [State.APPROACH,State.FIGHT]:
-		if hero.progression.charges > 0:
-			start_resurrection(false)
-		else:
+		if not start_resurrection(false):
 			transition_to(State.DEFEAT)
 			hero.script_pose("death")
 			boss.script_pose("idle")
@@ -572,10 +699,18 @@ func hero_died() -> void:
 			sound.play_track("")
 
 func reversal_ready() -> bool:
-	return powers.ready(hero,"reversal") and hero.progression.charges > 0 and hero.health > 0 \
-		and state in [State.APPROACH,State.FIGHT]
+	return can_resurrect(true)
 
-func start_resurrection(voluntary: bool) -> void:
+func can_resurrect(voluntary: bool) -> bool:
+	if curse_active or state not in [State.APPROACH, State.FIGHT] or hero.progression.charges <= 0:
+		return false
+	if voluntary:
+		return hero.health > 0 and powers.ready(hero,"reversal")
+	return hero.health == 0 and hero.progression.has("resurrection")
+
+func start_resurrection(voluntary: bool) -> bool:
+	if not can_resurrect(voluntary):
+		return false
 	resume_state = state
 	reversal = voluntary
 	hero.progression.charges -= 1
@@ -592,6 +727,7 @@ func start_resurrection(voluntary: bool) -> void:
 	resurrection_flash_pending = true
 	sound.cue("buildup" if reversal else "death")
 	sound.play_track("resurrection", "")
+	return true
 
 func release_reversal() -> void:
 	var radius := float(profile.get_value("resurrection","reversal_radius",190.0))
@@ -644,6 +780,7 @@ func tick_resurrection() -> void:
 func set_paused(value: bool) -> void:
 	paused = value
 	get_tree().paused = value
+	ui.story_movie.paused = value
 	if value:
 		clear_flash()
 		ui.show_panel("pause")
@@ -651,7 +788,6 @@ func set_paused(value: bool) -> void:
 		ui.show_panel("")
 
 func command(action: String) -> void:
-	sound.cue("confirm")
 	match action:
 		"begin":
 			begin()
@@ -664,6 +800,8 @@ func command(action: String) -> void:
 		"title":
 			to_title()
 		"retry":
+			if curse_active:
+				return
 			set_paused(false)
 			if journey.checkpoint_area.is_empty():
 				begin()
@@ -672,10 +810,12 @@ func command(action: String) -> void:
 				story.stop()
 				clear_flash()
 				effects.clear()
+				hero_art.set_body_opacity(1.0)
 				hero_art.released_weapon = false
 				journey.retry()
 		"quit":
 			quit_game()
+	sound.cue("confirm")
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
@@ -698,7 +838,7 @@ func _input(event: InputEvent) -> void:
 		if ui.menu_name == "controls":
 			ui.show_panel("title")
 		elif ui.menu_name == "audio":
-			ui.show_panel("pause")
+			ui.show_panel("title" if state == State.TITLE else "pause")
 		elif paused:
 			set_paused(false)
 		elif state not in [State.TITLE, State.DEFEAT, State.VICTORY]:
@@ -707,7 +847,7 @@ func _input(event: InputEvent) -> void:
 		return
 	if paused or (state == State.TITLE and not debug_enabled):
 		return
-	if event.is_action_pressed("retry", false) and state in [State.DEFEAT, State.VICTORY]:
+	if event.is_action_pressed("retry", false) and state == State.DEFEAT:
 		command("retry")
 		get_viewport().set_input_as_handled()
 		return
@@ -715,10 +855,10 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if state in [State.APPROACH,State.FIGHT]:
-		for ability: String in ["phantom","sever","echo"]:
+		for ability: String in ["phantom","sever"]:
 			if event.is_action_pressed(ability,false):
 				powers.use(self,ability)
-	if event.is_action_pressed("reversal", false) and reversal_ready():
+	if event.is_action_pressed("reversal", false):
 		start_resurrection(true)
 	if event.is_action_pressed("flash", false) and state == State.FLASH_OPEN:
 		start_execution()
@@ -788,19 +928,22 @@ func _physics_process(dt: float) -> void:
 			boss.visual_time += dt
 			boss.position.x = lerpf(1135,850,smoothstep(.22,2.2,clock))
 			if clock >= 2.2:
-				boss.pose = "idle"
+				boss.pose = "cleave_wind"
+				boss.phase = smoothstep(3.3,5.2,clock)
+				hero.pose = "draw_blade"
+				hero.phase = smoothstep(3.0,4.9,clock)
+			if clock >= 3.0 and clock-dt < 3.0:
+				sound.cue("draw")
 			if clock >= 5.2:
 				enter_duel()
 		State.EPILOGUE:
-			if story.advance(dt):
-				show_victory()
+			tick_ending(dt)
 		State.DOOM:
-			boss.visual_time += dt
-			boss.phase = clampf(clock / timing("doom_wind"),0,1)
-			if clock >= timing("doom_wind"):
-				begin_departure()
+			tick_doom(dt)
 		State.DEPARTURE:
-			hero.phase = clampf(clock / .63,0,1)
+			hero.phase = maxf(hero.phase,clampf(clock / .63,0,1))
+			if clock <= 1.65:
+				boss.phase = smoothstep(0,.45,clock)
 			hero.position.y = lerpf(fallen_from.y,572,smoothstep(0,.58,clock))
 			tick_falling_weapon()
 			boss.visual_time += dt
@@ -910,7 +1053,7 @@ func tick_play(dt: float) -> void:
 	if state != active:
 		return
 	separate_fighters(dt)
-	if state == State.PROLOGUE and (hero.health <= hero.maximum * .30 or boss.health <= boss.maximum * .76):
+	if state == State.PROLOGUE and (hero.health <= hero.maximum * .30 or boss.health <= boss.encounter_floor):
 		begin_doom()
 	resolve_boss_phase()
 
@@ -962,8 +1105,21 @@ func tick_falling_weapon() -> void:
 func tick_awakening(dt: float) -> void:
 	var flash_at := timing("awakening_flash")
 	var departure := timing("soul_departure")
-	if clock >= departure and clock - dt < departure:
-		sound.play_track("afterlife_" + realm(),"")
+	if clock >= departure and not story_movie_attempted:
+		story_movie_attempted = true
+		if ui.play_story_movie():
+			clock = departure
+			return
+	if ui.story_movie_backdrop.visible:
+		story_movie_elapsed += dt
+		# Some Theora files hold their last frame without emitting finished.
+		if ui.story_movie.stream_position >= timing("story_video_end") \
+				or story_movie_elapsed >= timing("story_video_timeout"):
+			ui.stop_story_movie()
+		clock = departure
+		return
+	if clock >= departure and clock - dt <= departure:
+		sound.play_track("between","")
 	if clock >= timing("soul_return") and clock - dt < timing("soul_return"):
 		sound.play_track("resurrection", "")
 	hero.phase = clampf(clock / .63,0,1)
@@ -1054,6 +1210,8 @@ func _process(dt: float) -> void:
 	var zoom_level := 1.0
 	var shade := 0.0
 	match state:
+		State.TITLE:
+			shade = .32
 		State.AWAKEN:
 			focus = hero.position.x
 			zoom_level = 1.10
@@ -1075,6 +1233,11 @@ func _process(dt: float) -> void:
 		camera.focus_actor(dt,hero.position+Vector2(10,-74),2.85)
 	elif state == State.MEMORIAL:
 		camera.focus_actor(dt,hero.position+Vector2(34,-64),1.28)
+	elif state == State.EPILOGUE:
+		var close := smoothstep(4.0,9.5,clock)*(1.0-smoothstep(15.2,21.5,clock))
+		camera.focus_actor(dt,Vector2(hero.position.x-26,479),1.1+close*.59)
+	elif state == State.DOOM:
+		camera.focus_actor(dt,(hero.position+boss.position)*.5+Vector2(0,-72),1.37)
 	elif state == State.CHALLENGER:
 		camera.focus_actor(dt,boss.position+Vector2(-95,-95),1.22)
 	elif side_encounter() and state in [State.FIGHT,State.RESURRECTING,State.DEFEAT]:
@@ -1187,7 +1350,7 @@ func hero_cue(name: String, at: Vector2) -> void:
 			if hero.resurrection_level >= 5:
 				effects.burst(at,Color("#ffd3c9"),10,122,-35,.42)
 			var attack: Dictionary = hero.strike_data
-			effects.arc(at,hero.facing,float(attack.reach)*(.69+.018*hero.resurrection_level),color,attack.name == "light_2",hero.awakened)
+			effects.arc(at,hero.facing,float(attack.reach)-31.0,color,attack.name == "light_2",hero.awakened)
 		"dash":
 			sound.cue("dash")
 			effects.ghost(at,hero.facing,Color("#db81a0"))

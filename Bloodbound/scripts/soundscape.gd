@@ -1,8 +1,8 @@
 extends Node
 
 const TRACKS := ["main_menu", "prologue", "clan_massacre", "ashen_path", "clan_memorial", "boss_intro",
-	"boss_phase_1", "boss_phase_2", "boss_final_phase", "opening_duel", "sovereign_duel", "shrine", "underworld", "frozen", "boss_transform", "epilogue", "first_death", "afterlife_celestial",
-	"afterlife_abyss", "resurrection", "final_flash", "victory", "credits", "werewolves"]
+	"boss_phase_1", "boss_phase_2", "boss_final_phase", "opening_duel", "sovereign_duel", "shrine", "underworld", "frozen", "boss_transform", "epilogue", "first_death", "between",
+	"resurrection", "final_flash", "victory", "credits", "werewolves"]
 const CUES := ["heartbeat", "swing", "hit", "parry", "dash", "tell", "slam", "death",
 	"awakening", "phase", "buildup", "final", "shatter", "confirm", "wolf", "gate", "draw", "land", "jump", "wolf_attack", "wolf_death"]
 var profile
@@ -76,7 +76,7 @@ func play_track(key: String, fallback: String = "") -> void:
 		music.stop()
 		track = ""
 		return
-	goal_db = float(profile.get_value("music_db",key,-16.0))
+	goal_db = float(profile.get_value("music_db",selected,-16.0))
 	if DisplayServer.get_name() == "headless" or (selected == track and music.playing):
 		return
 	track = selected
@@ -84,7 +84,7 @@ func play_track(key: String, fallback: String = "") -> void:
 	if music.stream is AudioStreamMP3:
 		music.stream.loop = true
 	music.volume_db = -45
-	var start := float(profile.get_value("music_start", key, 0.0))
+	var start := float(profile.get_value("music_start", selected, 0.0))
 	music.play(clampf(start, 0.0, maxf(0.0, music.stream.get_length() - .01)))
 
 func cue(key: String) -> void:

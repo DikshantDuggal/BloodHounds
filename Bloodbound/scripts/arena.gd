@@ -12,6 +12,28 @@ const INK := Color("#17151b")
 const PAPER := Color("#c3b8a3")
 const BLOOD := Color("#903c4b")
 const WIDTHS := {"courtyard": 1280.0, "road": 3000.0, "shrine": 1860.0, "underworld": 2120.0, "frozen": 2240.0, "throne": 1280.0}
+# Each prop is anchored to the floor at its x coordinate.
+const SCENERY := {
+	"courtyard": [
+		["house",170,.72,"#8a7385"], ["bell_wall",509,.52,"#766a79"],
+		["cherry",828,.64,"#ae8896"], ["rocks",1065,.22,"#796f7b"]],
+	"road": [
+		["house",105,.53,"#8d777c"], ["maple",328,.51,"#a48780"],
+		["ginkgo",1584,.65,"#9b876d"], ["rocks",2022,.29,"#7e7474"],
+		["maple",2286,.63,"#a88a85"], ["flowering_tree",2682,.54,"#927a85"]],
+	"shrine": [
+		["pagoda",93,.43,"#877986"], ["torii",359,.72,"#ae8992"],
+		["lantern",504,.24,"#b19a93"], ["cherry",764,.60,"#c19aaa"],
+		["rocks",860,.26,"#9b858c"], ["wisteria",1503,.70,"#a78c9d"]],
+	"underworld": [
+		["pine",142,.61,"#62708c"], ["rocks",1183,.34,"#657087"],
+		["lantern",1430,.22,"#808094"], ["pine",1773,.73,"#677993"],
+		["bell_wall",2049,.56,"#676981"]],
+	"frozen": [
+		["rocks",240,.53,"#65768f"], ["pine",504,.65,"#637c9a"],
+		["rocks",853,.34,"#63718b"], ["pine",1720,.70,"#61718b"],
+		["lantern",1830,.23,"#8b858e"]]
+}
 
 var area := "throne"
 var area_width := 1280.0
@@ -20,6 +42,15 @@ var exit_x := 1140.0
 var exit_open := true
 var gate_closed := 0.0
 var ending := false
+var fortress_fall := 0.0
+var fatal_impact := Vector2.ZERO
+var dawn := 0.0
+var oath_stone := 0.0
+var oath_grip_y := 471.0
+var heir_preview: SpriteFrames
+var heir_progress := -1.0
+var phantom_ward := 0.0
+var show_sever_target := false
 var backdrop_time := 0.0
 var mood := 0.0
 var shade := 0.0
@@ -71,6 +102,11 @@ func _ready() -> void:
 		campaign_art[key] = load(ART + key + ".png")
 	for key: String in DAY_LAYERS:
 		campaign_art[key] = load(ART + "sunset/" + key + ".png")
+	for placement: Array in SCENERY.values():
+		for prop: Array in placement:
+			var key: String = prop[0]
+			if not campaign_art.has(key):
+				campaign_art[key] = load("res://assets/scenery/" + key + ".png")
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 821781
@@ -91,6 +127,13 @@ func set_area(name: String) -> void:
 	var width_changed: bool = area_width != WIDTHS[next_area] or ridges.is_empty()
 	gate_closed = 0.0
 	ending = false
+	fortress_fall = 0.0
+	fatal_impact = Vector2.ZERO
+	dawn = 0.0
+	oath_stone = 0.0
+	heir_progress = -1.0
+	phantom_ward = 0.0
+	show_sever_target = false
 	backdrop_time = time
 	set_exit_open(true)
 	if next_area == area and not width_changed:
@@ -183,6 +226,10 @@ func _draw() -> void:
 		"throne":
 			draw_throne(tint)
 	draw_ground(tint)
+	if fatal_impact != Vector2.ZERO:
+		draw_floor_fracture(fatal_impact,1.0)
+	if area == "throne" and fortress_fall > .02:
+		draw_floor_fracture(Vector2(636,FLOOR-2),smoothstep(.02,.56,fortress_fall))
 	draw_crossing(tint)
 	for top: Rect2 in PLATFORMS.get(area,[]):
 		draw_texture_rect(campaign_art.rock_platform,Rect2(top.position,Vector2(top.size.x,top.size.x*39.0/146.0)),false,Color("#a6a0aa"))
@@ -196,12 +243,18 @@ func _draw() -> void:
 	if image:
 		draw_texture_rect(image,Rect2(-80,-45,area_width+160,770),false,Color(Color.WHITE,background_opacity))
 	draw_mist(tint)
-	for item in ash:
-		var x := fposmod(item.x+time*(10+item.z*8),area_width+240)-120
-		var y := fposmod(item.y-time*(6+item.z*6),610)
-		draw_circle(Vector2(x,y),item.z*.73,Color(tint.lightened(.32),.18+.17*sin(time+item.x)))
-	for fleck in grain:
-		draw_line(Vector2(fleck.x,fleck.y),Vector2(fleck.x+1.5+fleck.z*2,fleck.y+.4),Color(INK,.033*fleck.z),1)
+	if phantom_ward > 0.0:
+		for i in 4:
+			var x := phantom_ward+sin(time*2.2+i)*4
+			draw_line(Vector2(x,398+i*15),Vector2(phantom_ward,FLOOR),Color("#86dae4",.16+i*.08),2)
+		seal(Vector2(phantom_ward,471),22,Color("#86dae4"))
+	if show_sever_target:
+		var target := Vector2(1691,525)
+		draw_line(target,Vector2(target.x,FLOOR),Color("#524163"),8)
+		seal(target,16,Color("#dab6f3"))
+	if oath_stone > 0.0:
+		draw_oath_stone()
+	draw_atmosphere(tint)
 	if not exit_open:
 		var x := exit_x - 15
 		for i in 5:
@@ -210,6 +263,57 @@ func _draw() -> void:
 		seal(Vector2(x,483),16,Color("#d6a088"))
 	if shade > 0:
 		draw_rect(bounds,Color(.022,.016,.025,shade))
+
+func draw_atmosphere(tint: Color) -> void:
+	var to_local := get_global_transform_with_canvas().affine_inverse()
+	var viewport_rect := get_viewport_rect()
+	var top_left := to_local * viewport_rect.position
+	var visible := Rect2(top_left, to_local * viewport_rect.end - top_left).grow(48.0)
+	var ash_tone := tint.lightened(.32)
+	for item in ash:
+		var x := fposmod(item.x+time*(10+item.z*8),area_width+240)-120
+		if x < visible.position.x or x > visible.end.x:
+			continue
+		var y := fposmod(item.y-time*(6+item.z*6),610)
+		if y >= visible.position.y and y <= visible.end.y:
+			draw_circle(Vector2(x,y),item.z*.73,Color(ash_tone,.18+.17*sin(time+item.x)))
+	for fleck in grain:
+		var at := Vector2(fleck.x,fleck.y)
+		if visible.has_point(at):
+			draw_line(at,at+Vector2(1.5+fleck.z*2,.4),Color(INK,.033*fleck.z),1)
+
+func draw_oath_stone() -> void:
+	var x := oath_stone
+	polygon([Vector2(x-48,FLOOR),Vector2(x-39,548),Vector2(x-15,531),Vector2(x+21,526),
+		Vector2(x+40,541),Vector2(x+49,FLOOR)],Color("#322b36"))
+	draw_line(Vector2(x-34,549),Vector2(x+22,531),Color("#72606d"),3)
+	if heir_progress < 0.0:
+		return
+	for i in 10:
+		var root := Vector2(x-66+i*14,FLOOR)
+		draw_line(root,root+Vector2(5-i%3*5,-11-i%4*4),Color("#606f57"),3)
+	var approach := smoothstep(.35,3.35,heir_progress)
+	var at := Vector2(x+lerpf(203,58,approach),FLOOR)
+	var clip := &"run" if approach < .99 else &"idle"
+	if heir_preview and heir_preview.has_animation(clip) and heir_preview.get_frame_count(clip) > 0:
+		var frame := int(heir_progress*10.0)%heir_preview.get_frame_count(clip)
+		var texture := heir_preview.get_frame_texture(clip,frame)
+		draw_set_transform(at,0,Vector2(-1,1))
+		var size := texture.get_size()*1.25
+		draw_texture_rect(texture,Rect2(Vector2(-size.x*.5,-151),size),false,Color("#4e405b"))
+		draw_set_transform(Vector2.ZERO)
+	else:
+		polygon([at+Vector2(-17,-70),at+Vector2(8,-80),at+Vector2(24,-52),
+			at+Vector2(30,0),at+Vector2(-28,0)],Color("#30263a"))
+	var emblem := at+Vector2(-9,-44)
+	seal(emblem,5,Color("#d09879"))
+	if heir_progress >= 3.35:
+		var reaching := smoothstep(3.35,4.9,heir_progress)
+		var elbow := at+Vector2(-16,-36)
+		var hand := elbow.lerp(Vector2(x+8,oath_grip_y),reaching)
+		draw_line(at+Vector2(-8,-47),elbow,Color("#433449"),7)
+		draw_line(elbow,hand,Color("#514154"),6)
+		draw_rect(Rect2(hand-Vector2(3,3),Vector2(7,7)),Color("#ac826f"))
 
 func draw_fallback_sky(tint: Color, sky: Color, final_area: bool) -> void:
 	for band in 54:
@@ -232,12 +336,14 @@ func draw_campaign_sky() -> bool:
 		if area == "throne" and mood > 2.0:
 			lighting = lighting.lerp(Color("#fff1c0"),clampf(mood-2.0,0,1))
 		draw_texture_rect(campaign_art[key],Rect2(x-128,-86,1536,864),false,lighting)
+		if dawn > 0.0 and campaign_art.get("fond"):
+			draw_day(dawn,Color("#dfb699"))
 		if area == "underworld":
 			var fading := 1.0-smoothstep(0.8,7.4,time-backdrop_time)
 			draw_day(fading*.76,Color("#858cae"))
 		return true
 	if campaign_art.get("fond"):
-		draw_day(1.0,Color("#ffe8c8") if area == "courtyard" else Color("#d0ba96"))
+		draw_day(1.0,Color("#dfd6d7") if area == "courtyard" else Color("#beadab"))
 		return true
 	return false
 
@@ -255,8 +361,9 @@ func draw_day(alpha: float, tone: Color) -> void:
 		if area == "courtyard" and index >= 3:
 			var tones := [Color("#d9b6a8"),Color("#bcaba2"),Color("#9f9697"),Color("#989a84"),Color("#98a09a"),Color("#7f8991")]
 			color = Color(tones[index-3],alpha)
-		elif index >= 6 and area == "road":
-			color = Color("#a4bd80",alpha)
+		elif index >= 3 and area in ["road","shrine"]:
+			var tones := [Color("#c6a5a6"),Color("#b5a0ad"),Color("#9d8998"),Color("#ac899e"),Color("#a08997"),Color("#a391a3")]
+			color = Color(tones[index-3],alpha)
 		var first_tile := floori((parallax-400.0-anchor)/1280)
 		for tile in range(first_tile,first_tile+3):
 			draw_texture_rect(texture,Rect2(anchor+1280*tile,-60,1280,640),false,color)
@@ -319,146 +426,80 @@ func draw_sky(tint: Color, eclipse: bool) -> void:
 		draw_polyline(bolt,Color("#e0d7e9",pulse),1.4,true)
 
 func draw_courtyard(tint: Color) -> void:
-	for x: float in [140,335,975]:
-		banner(x,336 if x<500 else 310,66,tint)
-	for i in 9:
-		var x := 103+i*127.0
-		var height := 54.0+(i*23%48)
-		draw_rect(Rect2(x,544-height,63,height),Color("#3b363e"))
-		draw_line(Vector2(x,544-height),Vector2(x+63,544-height),Color(tint,.25),1.3)
-	for at in [Vector2(125,567),Vector2(281,562),Vector2(523,565),Vector2(830,563)]:
-		relic(at,tint)
-	gate_art(1148,220,tint,false)
+	draw_props("courtyard")
+	banner(79,352,42,tint)
+	gate_art(1148,220,tint)
 	if gate_closed > .001:
 		var amount := clampf(gate_closed,0,1)
 		draw_rect(Rect2(1085,327,126*amount,245),Color("#19161e"))
-		for i in 5:
-			var x := 1094+i*26
-			if x < 1085+126*amount:
-				draw_line(Vector2(x,331),Vector2(x,570),Color(tint,.19),1.5,true)
 		seal(Vector2(1148,432),15*amount,Color(BLOOD,amount))
-	pillar(4,77,390,tint)
-	pillar(1263,54,334,tint)
 
 func draw_road(tint: Color) -> void:
-	for i in 10:
-		var x := 160.0+i*289
-		var base := 526.0+(i%2)*18
-		var height := 91.0+(i*23%51)
-		var tone := Color("#393239")
-		polygon([Vector2(x-69,base),Vector2(x-65,base-height),Vector2(x-86,base-height),Vector2(x-29,base-height-37),
-			Vector2(x+11,base-height-11),Vector2(x+47,base-height-38),Vector2(x+91,base-height),Vector2(x+72,base-height),Vector2(x+76,base)],tone)
-		for beam in 4:
-			draw_line(Vector2(x-45+beam*33,base-height+7),Vector2(x-48+beam*32,base),Color("#51474c"),2.4,true)
-		draw_rect(Rect2(x-9,base-41,26,41),INK)
-		draw_line(Vector2(x-65,base-height),Vector2(x+71,base-height),Color(tint,.2),2.1,true)
-		if i%3==1:
-			for flame in 5:
-				var p := fposmod(time*.36+flame*.193+i*.12,1.0)
-				var foot := Vector2(x-32+flame*14,base-height+8)
-				draw_circle(foot+Vector2(sin(p*7+flame)*8,-p*75),5*(1-p)+1,Color("#d78969",(1-p)*.32))
-	for i in 18:
-		var x := 35.0+i*171
-		if x>390 and x<1254:
-			continue
-		tree(Vector2(x,FLOOR),103+(i*31%105),tint)
-	for i in 12:
-		var x := 290.0+i*219
-		draw_colored_polygon(PackedVector2Array([Vector2(x-13,572),Vector2(x-10,541),Vector2(x+3,532),Vector2(x+14,544),Vector2(x+17,572)]),Color("#3b343c"))
-		draw_line(Vector2(x-3,546),Vector2(x-1,562),Color(tint,.38),1.2,true)
-	for point in [Vector2(701,571),Vector2(1744,569),Vector2(2722,572)]:
-		relic(point,tint)
-	gate_art(area_width-119,187,tint,true)
-
+	draw_props("road")
 	for x: float in ROAD_DEBRIS:
-		polygon([Vector2(x-19,572),Vector2(x-19,551),Vector2(x-12,545),Vector2(x-2,540),
-			Vector2(x+15,543),Vector2(x+19,550),Vector2(x+19,572)],Color("#302930"))
-		draw_line(Vector2(x-12,547),Vector2(x+14,545),Color(tint,.56),2.0,true)
+		draw_masonry(x,tint)
 
-func draw_shrine(tint: Color) -> void:
-	for i in 3:
-		var at := Vector2(415+i*720,544)
-		var width := 67.0
-		polygon([at+Vector2(-width,0),at+Vector2(-43,-101),at+Vector2(-32,-151),at+Vector2(-17,-185),
-			at+Vector2(19,-185),at+Vector2(37,-146),at+Vector2(44,-91),at+Vector2(width,0)],Color("#3c3c43"))
-		draw_line(at+Vector2(-13,-160),at+Vector2(20,-162),Color(tint,.25),1.6,true)
-		draw_polyline(PackedVector2Array([at+Vector2(-22,-110),at+Vector2(6,-83),at+Vector2(24,-104)]),Color(tint,.18),2,true)
-	for i in 4:
-		gate_art(243+i*689,170+(i%2)*28,tint,true)
-	var water_x := 1398.0 + parallax*.08
-	for i in 9:
-		var x := water_x+i*8
-		draw_line(Vector2(x,266),Vector2(x+4,538),Color(PAPER,.035+(i%3)*.025),7,true)
-		var falling := fposmod(time*(79+i*7)+i*31,224)
-		draw_line(Vector2(x,285+falling),Vector2(x+3,310+falling),Color(PAPER,.14),1.4,true)
-	for i in 16:
-		var x := 145.0+i*153
-		var y := 400.0+(i*11%37)
-		draw_line(Vector2(x,y-42),Vector2(x,y),Color("#34303a"),1.3,true)
-		var glow := .12+.035*sin(time*2.1+i)
-		draw_circle(Vector2(x,y+11),19,Color("#e4bb80",glow))
-		draw_rect(Rect2(x-8,y,16,23),Color("#b19775"))
-		draw_line(Vector2(x-11,y),Vector2(x+11,y),INK,2,true)
-		draw_line(Vector2(x-10,y+23),Vector2(x+10,y+23),INK,2,true)
-	for i in 13:
-		relic(Vector2(127+i*192,FLOOR-3),tint)
-	for i in 4:
-		var width := 205.0-i*34
-		draw_rect(Rect2(2020-width*.5,556-i*11,width,11),Color("#45414a").lightened(i*.027))
-	seal(Vector2(2020,483),27,Color("#c6aa80",.7))
+func draw_shrine(_tint: Color) -> void:
+	draw_props("shrine")
 
 func draw_underworld(tint: Color) -> void:
-	for i in 9:
-		var x := 114.0+i*235
-		if x > 350.0 and x < 1150.0:
-			continue
-		pillar(x,45.0+i%3*5,192.0+i%4*36,tint)
-		var ember := Vector2(x+62,482)
-		draw_circle(ember,38,Color(tint,.11))
-		draw_line(ember+Vector2(0,75),ember+Vector2(0,9),Color("#211920"),8,true)
-		for j in 3:
-			var angle := sin(time*4.4+j+i)*.25
-			draw_line(ember,ember+Vector2(0,-21-j*8).rotated(angle),Color("#ffa460",.75-j*.16),5-j,true)
-	gate_art(area_width-120,309,tint,false)
+	draw_props("underworld")
 	for x: float in OBSTACLES.underworld:
-		draw_rect(Rect2(x-19.0,530,38,42),Color("#372329"))
-		draw_line(Vector2(x-17,532),Vector2(x+17,532),Color(tint,.65),2,true)
+		draw_masonry(x,tint)
 
 func draw_frozen(tint: Color) -> void:
-	for i in 14:
-		var x := 90.0+i*171.0
-		var tip := Vector2(x+19.0,365.0+i*47%132)
-		polygon([Vector2(x-60,572),Vector2(x-30,510),tip,Vector2(x+44,526),Vector2(x+67,572)],Color("#334958"))
-		draw_line(tip,Vector2(x-28,510),Color(tint,.43),2,true)
-		if i%3==0:
-			tree(Vector2(x+74,572),155.0+i*37%53,tint)
-	for i in 110:
-		var x := fposmod(i*97.91-time*(13+i%9),area_width)
-		var y := fposmod(i*61.3+time*(13+i%15),560.0)
-		draw_circle(Vector2(x,y),1.0+i%3*.45,Color("#e1f1fa",.22+i%5*.09))
-	gate_art(area_width-119,217,tint,true)
+	draw_props("frozen")
+	gate_art(area_width-119,217,tint)
+
+func draw_props(location: String) -> void:
+	for prop: Array in SCENERY[location]:
+		var sprite: Texture2D = campaign_art[prop[0]]
+		var size := (sprite.get_size() * float(prop[2])).round()
+		var base := Vector2(prop[1],FLOOR)
+		draw_texture_rect(sprite,Rect2((base-Vector2(size.x*.5,size.y)).round(),size),false,Color(prop[3]))
+
+func draw_masonry(x: float, tint: Color) -> void:
+	polygon([Vector2(x-19,572),Vector2(x-19,551),Vector2(x-12,545),Vector2(x-2,540),
+		Vector2(x+15,543),Vector2(x+19,550),Vector2(x+19,572)],Color("#302930"))
+	draw_line(Vector2(x-12,547),Vector2(x+14,545),Color(tint,.48),2.0,true)
 
 func draw_throne(tint: Color) -> void:
-	for i in 11:
-		var x := 298.0+i*63
-		var h := 68.0+(i*23%51)
-		polygon([Vector2(x,545),Vector2(x-2,545-h),Vector2(x+12,537-h),Vector2(x+20,545-h),Vector2(x+23,545)],Color("#29232f"))
 	for i in 5:
-		var width := 174.0-i*23
-		var y := 549.0-i*7
-		draw_rect(Rect2(640-width,y,width*2,7),Color("#302735").darkened(i*.04))
-		draw_line(Vector2(640-width,y),Vector2(640+width,y),Color(tint,.18),1)
-	polygon([Vector2(598,518),Vector2(598,439),Vector2(613,409),Vector2(631,427),Vector2(643,392),
-		Vector2(658,412),Vector2(671,399),Vector2(680,433),Vector2(685,518)],Color("#342b3b"))
-	draw_polyline(PackedVector2Array([Vector2(608,500),Vector2(608,445),Vector2(621,452),Vector2(643,421),
-		Vector2(666,455),Vector2(669,499)]),Color(tint,.29),1.3,true)
-	draw_rect(Rect2(605,498,73,19),Color("#403447"))
-	for detail in [[-10,66,492],[150,59,328],[262,29,193],[1052,32,244],[1146,59,395],[1279,76,490]]:
-		pillar(float(detail[0]),float(detail[1]),float(detail[2]),tint)
-	for x: float in [202,1021]:
-		banner(x,353,43,tint)
-	for point in [Vector2(118,571),Vector2(344,568),Vector2(854,566),Vector2(1159,571)]:
-		relic(point,tint)
+		var width := 162.0-i*19
+		var y := 551.0-i*8
+		draw_rect(Rect2(640-width,y,width*2,8),Color("#332b3a").darkened(i*.035))
+		draw_line(Vector2(640-width,y),Vector2(640+width,y),Color(tint,.16),1)
+	for detail: Array in [[68,58,460,.26,-.58],[214,48,340,.48,.73],[1033,38,271,.58,-.72],[1210,68,475,.37,.61]]:
+		var x: float = detail[0]
+		var fall := smoothstep(detail[3],1.0,fortress_fall)
+		var pivot := Vector2(x,FLOOR)
+		var angle: float = detail[4]*fall
+		draw_set_transform((pivot-pivot.rotated(angle)+Vector2(0,196*fall*fall)).round(),angle)
+		pillar(x,detail[1],detail[2],tint)
+		if fortress_fall > .08:
+			var y: float = FLOOR-detail[2]*.52
+			var crack := PackedVector2Array([Vector2(x-17,y-5),Vector2(x-5,y+8),Vector2(x+4,y-1),Vector2(x+17,y+13)])
+			draw_polyline(crack,Color("#090914",smoothstep(.08,.30,fortress_fall)),3)
+		draw_set_transform(Vector2.ZERO)
+	for side: float in [-1,1]:
+		var fall := smoothstep(.19 if side < 0 else .28,1.0,fortress_fall)
+		var base := Vector2(640,352)
+		draw_set_transform((base+Vector2(side*120*fall,240*fall*fall)).round(),side*fall*.64,Vector2(side,1))
+		polygon([Vector2.ZERO,Vector2(73,-27),Vector2(154,-21),Vector2(201,-6),Vector2(257,-11),
+			Vector2(234,20),Vector2(149,28),Vector2(80,22),Vector2(11,30)],Color("#272337"))
+		draw_polyline(PackedVector2Array([Vector2(1,6),Vector2(73,-18),Vector2(154,-13),
+			Vector2(208,2),Vector2(242,-1)]),Color(tint,.25),4)
+		draw_set_transform(Vector2.ZERO)
+	if fortress_fall < .95:
+		polygon([Vector2(603,520),Vector2(603,451),Vector2(624,424),Vector2(659,424),
+			Vector2(681,451),Vector2(681,520)],Color("#30283b"))
+
+func draw_floor_fracture(at: Vector2, amount: float) -> void:
+	for side: float in [-1,1]:
+		var split := PackedVector2Array([at,at+Vector2(side*14,8)*amount,
+			at+Vector2(side*26,4)*amount,at+Vector2(side*44,15)*amount,at+Vector2(side*68,16)*amount])
+		draw_polyline(split,Color("#0d0b13"),3.0)
+		draw_polyline(split,Color("#756276",.56),1.0)
 
 func draw_ground(tint: Color) -> void:
 	var ground := Color("#211e27") if area != "throne" else Color("#15121c")
@@ -486,20 +527,15 @@ func draw_mist(tint: Color) -> void:
 		draw_circle(Vector2.ZERO,82,Color(tint,.032))
 	draw_set_transform(Vector2.ZERO)
 
-func gate_art(x: float, height: float, tint: Color, shrine: bool) -> void:
+func gate_art(x: float, height: float, tint: Color) -> void:
 	var top := FLOOR-height
 	var tone := Color("#29232b")
 	for side: float in [-1,1]:
 		draw_line(Vector2(x+side*68,FLOOR),Vector2(x+side*62,top+11),tone,11,true)
 		draw_line(Vector2(x+side*65,FLOOR-6),Vector2(x+side*59,top+12),Color(tint,.22),1.1,true)
-	if shrine:
-		draw_polyline(PackedVector2Array([Vector2(x-97,top-8),Vector2(x-71,top),Vector2(x+72,top),Vector2(x+96,top-8)]),tone,12,true)
-		draw_line(Vector2(x-83,top+23),Vector2(x+84,top+23),tone,9,true)
-		draw_line(Vector2(x,top+2),Vector2(x,top+26),tone,8,true)
-	else:
-		polygon([Vector2(x-91,top+8),Vector2(x-76,top-18),Vector2(x-49,top-7),Vector2(x-22,top-16),
-			Vector2(x+17,top-3),Vector2(x+44,top-22),Vector2(x+91,top+8)],tone)
-		draw_rect(Rect2(x-59,top+14,118,height-14),Color("#15111c",.74))
+	polygon([Vector2(x-91,top+8),Vector2(x-76,top-18),Vector2(x-49,top-7),Vector2(x-22,top-16),
+		Vector2(x+17,top-3),Vector2(x+44,top-22),Vector2(x+91,top+8)],tone)
+	draw_rect(Rect2(x-59,top+14,118,height-14),Color("#15111c",.74))
 
 func banner(x: float, top: float, width: float, tint: Color) -> void:
 	draw_line(Vector2(x,FLOOR),Vector2(x,top-15),INK,6,true)
@@ -509,15 +545,7 @@ func banner(x: float, top: float, width: float, tint: Color) -> void:
 		Vector2(x+width*.57,top+77),Vector2(x+width*.32,top+101),Vector2(x+3,top+84)],BLOOD.darkened(.32))
 	seal(Vector2(x+width*.5,top+39),10,Color(tint,.47))
 
-func tree(at: Vector2, height: float, tint: Color) -> void:
-	var trunk := PackedVector2Array([at,at+Vector2(-7,-height*.34),at+Vector2(6,-height*.73),at+Vector2(-5,-height)])
-	draw_polyline(trunk,Color("#26222b"),7,true)
-	for i in 4:
-		var side := 1.0 if i%2==0 else -1.0
-		var from := at+Vector2(0,-height*(.32+i*.14))
-		var tip := from+Vector2(side*(29+i*4),-20-i*8)
-		draw_polyline(PackedVector2Array([from,from.lerp(tip,.55)+Vector2(3,-4),tip]),Color("#26222b"),3.0,true)
-		draw_line(tip-Vector2(side*12,-3),tip+Vector2(side*11,-14),Color(tint,.14),1.0,true)
+
 
 func pillar(x: float, width: float, height: float, tint: Color) -> void:
 	var y := FLOOR-height
@@ -531,13 +559,7 @@ func pillar(x: float, width: float, height: float, tint: Color) -> void:
 		var base := FLOOR-7-i*8
 		draw_line(Vector2(x-width*(.67-i*.055),base),Vector2(x+width*(.69-i*.05),base),Color(tint,.16),1,true)
 
-func relic(at: Vector2, tint: Color) -> void:
-	draw_set_transform(at,sin(at.x)*.41)
-	polygon([Vector2(-3,3),Vector2(-4,-56),Vector2(4,-59),Vector2(5,-1)],Color("#38313b"))
-	draw_line(Vector2(2,-56),Vector2(3,-5),Color(tint,.40),1,true)
-	draw_line(Vector2(-11,-57),Vector2(12,-57),Color("#29232e"),4,true)
-	draw_line(Vector2(0,-58),Vector2(0,-72),Color("#29232e"),3,true)
-	draw_set_transform(Vector2.ZERO)
+
 
 func seal(at: Vector2, radius: float, color: Color) -> void:
 	draw_polyline(PackedVector2Array([at+Vector2(0,-radius),at+Vector2(radius*.62,0),at+Vector2(0,radius),

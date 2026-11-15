@@ -3,7 +3,7 @@ extends RefCounted
 signal animation_requested(name: String)
 
 const INK_SCENE = preload("res://scenes/InkCutscene.tscn")
-const ART_KEYS := ["clan", "blade", "massacre", "heir", "memorial", "celestial", "abyss", "death", "awakening", "memory", "ending", "flash", "defeat"]
+const ART_KEYS := ["clan", "blade", "massacre", "heir", "memorial", "death", "awakening", "memory", "ending", "flash", "defeat"]
 var illustrations: Dictionary = {}
 var panels: Array = []
 var index := 0

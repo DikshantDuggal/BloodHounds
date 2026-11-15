@@ -4,7 +4,7 @@ const Damage = preload("res://scripts/damage.gd")
 
 @export var health_by_level := PackedInt32Array([120,140,160,180,200,220])
 @export var attack_by_level := PackedInt32Array([20,22,24,26,28,30])
-@export var unlocks := PackedStringArray(["resurrection","phantom","sever","reversal","echo","flash"])
+@export var unlocks := PackedStringArray(["resurrection","phantom","sever","reversal","","flash"])
 @export var starting_abilities := PackedStringArray()
 @export var heavy_multiplier := 1.8
 @export var critical_multiplier := 1.5
@@ -60,7 +60,7 @@ func enter_level(value: int) -> void:
 
 func unlock_for(value: int) -> String:
 	var ability := unlocks[value-1]
-	if has(ability):
+	if ability.is_empty() or has(ability):
 		return ""
 	unlocked.append(ability)
 	return ability

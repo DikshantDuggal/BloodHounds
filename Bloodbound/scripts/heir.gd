@@ -163,34 +163,7 @@ func simulate(dt: float) -> void:
 	leap_buffer = number("movement", "buffer") if take_input("leap") else maxf(0, leap_buffer - dt)
 	swing_buffer = maxf(0, swing_buffer - dt)
 	var pressed := take_input("light")
-	if pressed and mode == Mode.ATTACK:
-		swing_buffer = number("combat", "combo_buffer")
-	if mode != Mode.HURT and mode != Mode.DASH:
-		if dash_cd <= 0 and take_input("dash"):
-			if not is_zero_approx(axis):
-				facing = signf(axis)
-			mode = Mode.DASH
-			clock = 0
-			dash_cd = number("movement", "dash_cooldown")
-			iframe = maxf(iframe, number("movement", "dash_time") + 0.02)
-			swing_buffer = 0
-			action.emit("dash", position)
-		elif parry_cd <= 0 and mode != Mode.PARRY and take_input("parry"):
-			mode = Mode.PARRY
-			clock = 0
-			parry_cd = number("combat", "parry_cooldown")
-			parry_success = false
-			swing_buffer = 0
-			action.emit("guard", position + Vector2(26 * facing, -48))
-	if mode == Mode.FREE:
-		if not is_zero_approx(axis):
-			facing = signf(axis)
-		if pressed:
-			combo = 1 if grounded else 0
-			begin_attack("light_1" if grounded else "air")
-		elif take_input("heavy"):
-			mode = Mode.CHARGE
-			clock = 0
+	read_action_commands(axis, grounded, pressed)
 	if mode != Mode.DASH:
 		velocity.y += number("movement", "gravity") * dt
 		if Input.is_action_just_released("leap") and velocity.y < -150.0:
@@ -238,33 +211,8 @@ func simulate(dt: float) -> void:
 					energy -= 25.0
 				begin_attack("charged" if fully_charged else "heavy")
 		Mode.ATTACK:
-			var start: float = strike_data.start
-			var end: float = strike_data.end
-			var total: float = strike_data.total
-			pose = strike_data.name
-			phase = clock / total
-			var active := clock >= start and (clock <= end or not swing_started)
-			velocity.x = move_toward(velocity.x, facing * 142.0 if active else axis * 63.0, 1620 * dt)
-			if active and pose != "sever":
-				if not swing_started:
-					swing_started = true
-					action.emit("swing", position + Vector2(31 * facing, -43))
-				var amount: float = progression.attack_power(float(strike_data.multiplier),pose=="heavy")
-				var shift: Vector2 = strike_data.get("offset", Vector2.ZERO)
-				var pivot := global_position + Vector2(shift.x * facing, shift.y)
-				var box := Strike.forward(pivot, facing, strike_data.reach, strike_data.height, 23.0)
-				swung.emit(Strike.new(box, amount, facing, false, pose, strike_id))
-				if mode != Mode.ATTACK:
-					return
-			elif active and not swing_started:
-				swing_started = true
-				action.emit("sever", position + Vector2(31 * facing, -43))
-			if clock >= total:
-				if swing_buffer > 0 and combo > 0 and grounded:
-					combo = combo % 3 + 1
-					begin_attack("light_%d" % combo)
-				else:
-					enable()
+			if not step_attack(dt, axis, grounded):
+				return
 		Mode.HURT:
 			pose = "hurt" if clock < 0.09 else "knockback"
 			phase = clock / 0.29
@@ -278,6 +226,64 @@ func simulate(dt: float) -> void:
 	if not grounded and is_on_floor() and falling_speed > 100:
 		landing = 0.12
 		action.emit("land", position)
+
+func read_action_commands(axis: float, grounded: bool, pressed: bool) -> void:
+	if pressed and mode == Mode.ATTACK:
+		swing_buffer = number("combat", "combo_buffer")
+	if mode in [Mode.HURT, Mode.DASH]:
+		return
+	if dash_cd <= 0 and take_input("dash"):
+		if not is_zero_approx(axis):
+			facing = signf(axis)
+		mode = Mode.DASH
+		clock = 0
+		dash_cd = number("movement", "dash_cooldown")
+		iframe = maxf(iframe, number("movement", "dash_time") + 0.02)
+		swing_buffer = 0
+		action.emit("dash", position)
+	elif parry_cd <= 0 and mode != Mode.PARRY and take_input("parry"):
+		mode = Mode.PARRY
+		clock = 0
+		parry_cd = number("combat", "parry_cooldown")
+		parry_success = false
+		swing_buffer = 0
+		action.emit("guard", position + Vector2(26 * facing, -48))
+	if mode != Mode.FREE:
+		return
+	if not is_zero_approx(axis):
+		facing = signf(axis)
+	if pressed:
+		combo = 1 if grounded else 0
+		begin_attack("light_1" if grounded else "air")
+	elif take_input("heavy"):
+		mode = Mode.CHARGE
+		clock = 0
+
+func step_attack(dt: float, axis: float, grounded: bool) -> bool:
+	var total: float = strike_data.total
+	pose = strike_data.name
+	phase = clock / total
+	var active: bool = clock >= strike_data.start and (clock <= strike_data.end or not swing_started)
+	velocity.x = move_toward(velocity.x, facing * 142.0 if active else axis * 63.0, 1620 * dt)
+	if active:
+		if not swing_started:
+			swing_started = true
+			action.emit("sever" if pose == "sever" else "swing", position + Vector2(31 * facing, -43))
+		if pose != "sever":
+			var amount: float = progression.attack_power(float(strike_data.multiplier), pose == "heavy")
+			var shift: Vector2 = strike_data.get("offset", Vector2.ZERO)
+			var pivot := global_position + Vector2(shift.x * facing, shift.y)
+			var box := Strike.forward(pivot, facing, strike_data.reach, strike_data.height, 23.0)
+			swung.emit(Strike.new(box, amount, facing, false, pose, strike_id))
+			if mode != Mode.ATTACK:
+				return false
+	if clock >= total:
+		if swing_buffer > 0 and combo > 0 and grounded:
+			combo = combo % 3 + 1
+			begin_attack("light_%d" % combo)
+		else:
+			enable()
+	return true
 
 func begin_attack(key: String) -> void:
 	if key == "sever":

@@ -70,7 +70,7 @@ func hurtbox() -> Rect2:
 	return Rect2(position - Vector2(body_size.x * .5, body_size.y), body_size)
 
 func receive(strike) -> bool:
-	if dead or not hurtbox().intersects(strike.box) or already_hit(strike):
+	if dead or not hurtbox().intersects(strike.box) or not strike.register_hit(hit_ids):
 		return false
 	var multiplier := recovery_guard if mode in [Mode.RECOVER,Mode.STAGGER] else guard
 	if strike.source == "counter":
@@ -86,19 +86,12 @@ func receive(strike) -> bool:
 		recoil = strike.direction * 290.0
 	return true
 
-func already_hit(strike) -> bool:
-	var channel: String = strike.hit_channel()
-	var previous: int = hit_ids.get(channel,-1)
-	if (strike.id == previous if channel == "counter" else strike.id <= previous):
-		return true
-	hit_ids[channel] = strike.id
-	return false
-
 func repelled(critical: float = 1.0) -> void:
 	if dead:
 		return
 	change(Mode.STAGGER)
-	receive(Strike.new(hurtbox(), float(config.get_value(kind,"parry_damage",12))*critical, -facing, false, "counter", -cursor))
+	var damage := float(config.get_value(kind,"parry_damage",12))*critical
+	receive(Strike.new(hurtbox(), damage, -facing, false, "counter", cursor))
 
 func interrupt() -> void:
 	if not dead:

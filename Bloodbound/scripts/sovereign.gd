@@ -121,10 +121,8 @@ func hurtbox() -> Rect2:
 func receive(strike) -> bool:
 	if mode == Mode.SCRIPT or not hurtbox().intersects(strike.box):
 		return false
-	var channel: String = strike.hit_channel()
-	if strike.id <= int(hit_ids.get(channel,-1)):
+	if not strike.register_hit(hit_ids):
 		return false
-	hit_ids[channel] = strike.id
 	var open := stage == 0 or mode in [Mode.RECOVER,Mode.STAGGER]
 	var previous := health
 	var multiplier := (1.0 if stage == 0 else (recovery_guard if open else guard)) * (1.25 if mode == Mode.STAGGER else 1.0)
