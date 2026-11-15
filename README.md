@@ -1,5 +1,14 @@
 # BLOODBOUND — REQUIEM OF THE FALLEN
 
+## Opening video and menus
+
+The game opens with the supplied 10-second video, including audio. Enter, Escape,
+Space, or Skip intro goes to the title screen. The title, controls, pause, audio,
+and result menus use a simpler design. Returning to the menu does not replay the video.
+
+The active source project is `Bloodbound/project.godot`. The Windows executable
+and `Bloodbound-Source.zip` include these changes.
+
 > *"A clan once kept watch over the passage between life and death. They entrusted that passage to Honjō Masamune. The Hollow Sovereign came for the blade. The courtyard burned. Under the ashes, one heir still breathed."*
 
 [![Godot Engine](https://img.shields.io/badge/Godot_Engine-v4.5.1_Standard-478cbf?logo=godotengine&logoColor=white)](https://godotengine.org)

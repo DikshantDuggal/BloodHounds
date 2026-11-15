@@ -6,6 +6,10 @@ const HOT := Color("#f78fa2")
 const LIGHT := Color("#f4ded8")
 const MUTED := Color("#b9abbf")
 const VIOLET := Color("#c1a2f0")
+const MENU_TEXT := Color("#e5dfd5")
+const MENU_MUTED := Color("#a19a91")
+const MENU_ACCENT := Color("#a96559")
+const MENU_BACKGROUND := preload("res://assets/video/menu.png")
 var game
 var canvas: Control
 var menu: VBoxContainer
@@ -33,7 +37,7 @@ func setup(director) -> void:
 	canvas.draw.connect(paint)
 	add_child(canvas)
 	menu = VBoxContainer.new()
-	menu.add_theme_constant_override("separation", 9)
+	menu.add_theme_constant_override("separation", 4)
 	canvas.add_child(menu)
 
 func refresh(dt: float) -> void:
@@ -58,21 +62,23 @@ func show_panel(name: String) -> void:
 		menu.remove_child(child)
 		child.queue_free()
 	buttons.clear()
-	menu.position = Vector2(105, 410) if name == "title" else Vector2(496, 388)
+	menu.position = Vector2(96, 364) if name == "title" else Vector2(496, 350)
 	match name:
 		"title":
-			add_button("BEGIN", "begin")
-			add_button("CONTROLS", "controls")
-			add_button("QUIT", "quit")
+			add_button("Play", "begin")
+			add_button("Controls", "controls")
+			add_button("Quit", "quit")
 		"controls":
-			menu.position.y = 559
-			add_button("RETURN TO TITLE", "title")
+			menu.position = Vector2(388, 536)
+			add_button("Back", "title")
 		"pause":
-			add_button("RESUME", "resume")
-			add_button("RETRY", "retry")
-			add_button("AUDIO SETTINGS", "audio")
-			add_button("RETURN TO TITLE", "title")
+			menu.position.y = 324
+			add_button("Resume", "resume")
+			add_button("Retry checkpoint", "retry")
+			add_button("Audio", "audio")
+			add_button("Main menu", "title")
 		"audio":
+			menu.position.y = 386
 			var control := HSlider.new()
 			control.custom_minimum_size = Vector2(288, 35)
 			control.min_value = 0
@@ -81,29 +87,30 @@ func show_panel(name: String) -> void:
 			control.value = game.sound.volume
 			control.value_changed.connect(game.sound.set_volume)
 			menu.add_child(control)
-			add_button("BACK", "pause")
+			add_button("Back", "pause")
 			control.grab_focus()
 			return
 		"defeat", "victory":
-			add_button("RESTART BATTLE", "retry")
-			add_button("RETURN TO TITLE", "title")
+			add_button("Retry checkpoint", "retry")
+			add_button("Main menu", "title")
 	if not buttons.is_empty():
 		buttons[0].grab_focus()
 
 func add_button(label: String, id: String) -> void:
 	var control := Button.new()
 	control.text = label
-	control.custom_minimum_size = Vector2(248 if menu_name == "title" else 288, 39)
-	control.alignment = HORIZONTAL_ALIGNMENT_LEFT if menu_name == "title" else HORIZONTAL_ALIGNMENT_CENTER
+	control.custom_minimum_size = Vector2(240 if menu_name == "title" else 288, 44)
+	control.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	control.add_theme_font_override("font", text_font)
-	control.add_theme_font_size_override("font_size", 14)
-	control.add_theme_color_override("font_color", LIGHT)
-	control.add_theme_color_override("font_focus_color", Color.WHITE)
-	control.add_theme_color_override("font_hover_color", Color.WHITE)
-	control.add_theme_stylebox_override("normal", style(Color("#241b2c"), Color("#4f394c")))
-	control.add_theme_stylebox_override("hover", style(Color("#452639"), HOT))
-	control.add_theme_stylebox_override("pressed", style(Color("#622a44"), HOT))
-	control.add_theme_stylebox_override("focus", style(Color(0,0,0,0), HOT))
+	control.add_theme_font_size_override("font_size", 20 if menu_name == "title" else 17)
+	control.add_theme_color_override("font_color", MENU_MUTED)
+	control.add_theme_color_override("font_focus_color", MENU_TEXT)
+	control.add_theme_color_override("font_hover_color", MENU_TEXT)
+	control.add_theme_color_override("font_pressed_color", MENU_TEXT)
+	control.add_theme_stylebox_override("normal", style(Color.TRANSPARENT, Color.TRANSPARENT))
+	control.add_theme_stylebox_override("hover", style(Color(1,1,1,.035), Color.TRANSPARENT))
+	control.add_theme_stylebox_override("pressed", style(Color(1,1,1,.07), Color.TRANSPARENT))
+	control.add_theme_stylebox_override("focus", style(Color.TRANSPARENT, MENU_ACCENT))
 	control.pressed.connect(func() -> void: requested.emit(id))
 	menu.add_child(control)
 	buttons.append(control)
@@ -112,11 +119,9 @@ func style(fill: Color, border: Color) -> StyleBoxFlat:
 	var value := StyleBoxFlat.new()
 	value.bg_color = fill
 	value.border_color = border
-	value.border_width_left = 3
-	value.border_width_bottom = 1
-	value.border_width_right = 1
-	value.border_width_top = 1
-	value.content_margin_left = 17
+	value.border_width_left = 2
+	value.content_margin_left = 16
+	value.content_margin_right = 16
 	return value
 
 func paint() -> void:
@@ -217,21 +222,12 @@ func paint() -> void:
 		modal()
 
 func title() -> void:
-	for i in 45:
-		var opacity := .045 * pow(1.0 - i / 45.0, 1.8)
-		panel(Rect2(0, 0, 445 + i * 14.0, 720), Color(.021,.015,.035,opacity))
-	panel(Rect2(0,0,1280,72), Color("#0b0911"))
-	panel(Rect2(0,607,1280,113), Color("#0b0911"))
-	line(Vector2(104,195),Vector2(168,195),HOT,1)
-	diamond(Vector2(178,195), 4, HOT)
-	write(Vector2(203,199), game.profile.get_value("story", "arena"), 14, MUTED)
-	write(Vector2(99,302), "BLOODBOUND", 94, LIGHT, true)
-	write(Vector2(105,354), "R E Q U I E M   O F   T H E   F A L L E N", 25, HOT, true)
-	line(Vector2(104,381), Vector2(529,381), Color(HOT,.33), 1.0)
-	write(Vector2(104,657), "ENTER  Select     ↑ / ↓  Navigate", 14, MUTED)
-	var boss_name: String = game.boss.profile.get_value("identity", "name", "THE HOLLOW SOVEREIGN")
-	write(Vector2(871,650), boss_name, 16, MUTED, true)
-	write(Vector2(871,674), "Minotaur art by chierit  •  CC BY 4.0", 12, MUTED)
+	canvas.draw_texture_rect(MENU_BACKGROUND, Rect2(0,0,1280,720), false)
+	panel(Rect2(0,0,1280,720), Color(.025,.025,.027,.64))
+	write(Vector2(96,272), "BLOODBOUND", 66, MENU_TEXT, true, false)
+	write(Vector2(99,310), "Requiem of the Fallen", 20, MENU_MUTED, false, false)
+	write(Vector2(99,670), "↑ / ↓  Navigate     Enter  Select", 13, MENU_MUTED, false, false)
+	write(Vector2(918,670), "Minotaur art: chierit · CC BY 4.0", 12, MENU_MUTED, false, false)
 
 func hud(a: float) -> void:
 	var h = game.hero
@@ -404,38 +400,34 @@ func letterbox(a: float) -> void:
 func modal() -> void:
 	if menu_name == "victory" and game.story.illustrations.get("ending"):
 		game.story.draw_plate(canvas,"ending",.75)
-	panel(Rect2(0,0,1280,720), Color(.031,.024,.052,.81 if menu_name != "victory" else .53))
+	panel(Rect2(0,0,1280,720), Color(.02,.02,.023,.76 if menu_name != "victory" else .53))
 	var box := Rect2(440, 174, 400, 418)
 	if menu_name == "controls":
-		box = Rect2(371,108,538,514)
-	panel(box, Color("#171322"))
-	canvas.draw_rect(box, Color("#594054"), false, 1)
-	line(box.position, Vector2(box.end.x,box.position.y), HOT, 2)
-	diamond(Vector2(640,box.position.y+35), 5, HOT)
+		box = Rect2(344,92,592,552)
+	panel(box, Color("#181819"))
 	match menu_name:
 		"controls":
-			center("CONTROLS", 199, 32, LIGHT, true)
+			write(Vector2(388,155), "Controls", 30, MENU_TEXT, true, false)
 			var entries := [["A / D   or   ← / →","Move"], ["SPACE   or   ↑","Jump"], ["J","Light attack / combo"],
 				["K   Hold / release","Heavy / charged attack"], ["SHIFT","Dodge / dash"], ["L","Parry"],
 				["E / U","Phantom Step / Soul Sever"], ["Q / I","Death Reversal / Ancestral Echo"], ["F","One Flash"], ["ESC   /   R","Pause / retry after defeat"]]
 			for i in entries.size():
-				var y := 227.0 + i * 30
-				write(Vector2(420,y), entries[i][0], 13, HOT)
-				write(Vector2(632,y), entries[i][1], 14, LIGHT)
-				line(Vector2(419,y+11),Vector2(857,y+11),Color(HOT,.11),1)
+				var y := 207.0 + i * 32
+				write(Vector2(388,y), entries[i][0], 14, MENU_MUTED, false, false)
+				write(Vector2(620,y), entries[i][1], 15, MENU_TEXT, false, false)
 		"pause":
-			center("PAUSED", 294, 37, LIGHT, true)
+			write(Vector2(496,264), "Paused", 34, MENU_TEXT, true, false)
 		"audio":
-			center("AUDIO SETTINGS", 294, 32, LIGHT, true)
-			center("Master volume", 352, 15, MUTED)
+			write(Vector2(496,264), "Audio", 34, MENU_TEXT, true, false)
+			write(Vector2(496,352), "Master volume", 16, MENU_MUTED, false, false)
 		"defeat":
-			center("THE HEIR HAS FALLEN", 287, 28, LIGHT, true)
-			center("R  Return to the last checkpoint", 328, 14, MUTED)
+			center("You have fallen", 270, 30, MENU_TEXT, true, false)
+			center("R  Retry checkpoint", 308, 14, MENU_MUTED, false, false)
 		"victory":
-			center("OATH FULFILLED", 277, 33, LIGHT, true)
-			center(game.profile.get_value("story", "arena").capitalize(), 317, 16, MUTED, true)
+			center("Oath fulfilled", 264, 33, MENU_TEXT, true, false)
+			center(game.profile.get_value("story", "arena").capitalize(), 300, 16, MENU_MUTED, false, false)
 			center("PARRIES   %02d     •     TIME   %02d:%02d" % [game.parries, floori(game.fight_time / 60), int(game.fight_time) % 60],
-				350, 13, HOT)
+				326, 13, MENU_MUTED, false, false)
 
 func gauge(at: Vector2, size: Vector2, fraction: float, bright: Color, dark: Color, opacity: float) -> void:
 	panel(Rect2(at - Vector2.ONE * 2,size + Vector2.ONE * 4), Color("#17101c",opacity*.94))
