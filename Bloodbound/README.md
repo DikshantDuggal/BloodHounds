@@ -3,8 +3,8 @@
 > The Demon Overlord destroyed the Oda household. Shinegen Oda rose from the ashes, bound to Ketsumei until his oath is fulfilled.
 
 [![Godot Engine](https://img.shields.io/badge/Godot_Engine-v4.5.1_Standard-478cbf?logo=godotengine&logoColor=white)](https://godotengine.org)
-[![Branch](https://img.shields.io/badge/Branch-main-success?logo=git&logoColor=white)](https://github.com/DikshantDuggal/BloodHounds/tree/main)
-[![Platform](https://img.shields.io/badge/Platform-Windows_Desktop_x86__64-0078d7?logo=windows&logoColor=white)](https://github.com/DikshantDuggal/BloodHounds)
+[![Branch](https://img.shields.io/badge/Branch-main-success?logo=git&logoColor=white)](https://github.com/DikshantDuggal/Red-Moon-Vengeance/tree/main)
+[![Platform](https://img.shields.io/badge/Platform-Windows_Desktop_x86__64-0078d7?logo=windows&logoColor=white)](https://github.com/DikshantDuggal/Red-Moon-Vengeance)
 [![Renderer](https://img.shields.io/badge/Renderer-GL_Compatibility-green)](#technical-architecture)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](licenses/Godot-LICENSE.txt)
 
